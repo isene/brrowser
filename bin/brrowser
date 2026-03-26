@@ -256,19 +256,37 @@ module Brrowser
     def render_page(result)
       ct = result[:content_type].to_s
 
+      # Always clear old state
+      clear_images
+      @current_link = -1
+      @highlighted_line = nil
+
       # Handle image URLs: display the image instead of raw binary
       if ct.match?(/image\//) || result[:url].to_s.match?(/\.(png|jpe?g|gif|bmp|webp|svg|ico)(\?|$)/i)
         render_image_page(result)
         return
       end
 
-      # Handle other binary content: offer download
-      if ct.match?(/octet-stream|application\/pdf|application\/zip|audio\/|video\//)
-        current_tab.title = File.basename(URI.parse(result[:url]).path) rescue result[:url]
-        current_tab.content = "Binary file: #{ct}\nURL: #{result[:url]}\nSize: #{result[:body]&.length} bytes\n\nPress ':download' to save this file."
-        current_tab.links = []
-        current_tab.images = []
-        current_tab.forms = []
+      # Handle other binary content: prompt open or download
+      if ct.match?(/octet-stream|application\/pdf|application\/zip|audio\/|video\//) ||
+         result[:url].to_s.match?(/\.(pdf|zip|tar|gz|mp[34]|wav|avi|mov|mkv)(\?|$)/i)
+        filename = File.basename(URI.parse(result[:url]).path) rescue "file"
+        # Save to temp first
+        tmppath = File.join(@img_dir, filename)
+        File.binwrite(tmppath, result[:body])
+        @pInput.x = 2; @pInput.w = @w - 1; @pInput.y = @h
+        choice = @pInput.ask("#{filename} (#{result[:body]&.length} bytes) - [o]pen / [d]ownload / [c]ancel: ", "o")
+        case choice&.strip&.downcase
+        when "o"
+          system("xdg-open #{Shellwords.escape(tmppath)} &")
+          @status_msg = "Opened #{filename}"
+        when "d"
+          download_file(result[:url])
+        else
+          @status_msg = "Cancelled"
+        end
+        refresh_cmd
+        go_back
         return
       end
 
@@ -292,10 +310,7 @@ module Brrowser
       end
       current_tab.ix = 0
       @pMain.ix = 0
-      @current_link = -1
-      @highlighted_line = nil
       @status_msg = ""
-      clear_images
       @last_img_count = 0
       start_image_downloads
     end
@@ -309,15 +324,20 @@ module Brrowser
       File.binwrite(local, result[:body])
       @img_cache[result[:url]] = local
 
-      reserve = Brrowser::Renderer::IMG_RESERVE
+      # Use most of the screen for the image
+      img_h = @pMain.h - 4
       current_tab.title   = filename
-      lines = ["#{filename}".fg(220).b, "#{result[:url]}".fg(245), ""]
-      lines += Array.new(reserve, "")
-      lines += ["", "Size: #{result[:body].length} bytes".fg(245)]
+      lines = ["#{filename}  #{result[:body].length} bytes".fg(245)]
+      lines += Array.new(img_h, "")
       current_tab.content = lines.join("\n")
       current_tab.links   = []
-      current_tab.images  = [{ src: result[:url], alt: filename, line: 3, height: reserve }]
+      current_tab.images  = [{ src: result[:url], alt: filename, line: 1, height: img_h }]
       current_tab.forms   = []
+      current_tab.ix = 0
+      @pMain.ix = 0
+      @status_msg = ""
+      @last_img_count = 0
+      start_image_downloads
     end
 
     def re_render
@@ -584,21 +604,25 @@ module Brrowser
         visible_h = bot_in_view - top_in_view + 1
         next if visible_h < 3
 
+        # Full width for standalone image pages, half for inline
+        standalone = current_tab.images.length == 1 && current_tab.links.empty?
+        mw = standalone ? @pMain.w - 2 : [@pMain.w / 2, 60].min
+
         if mode == :termpix
           @termpix.show(local,
             x: @pMain.x,
             y: screen_y,
-            max_width: [@pMain.w / 2, 60].min,
+            max_width: mw,
             max_height: visible_h)
         elsif mode == :ascii
-          show_ascii_image(local, screen_y, visible_h)
+          show_ascii_image(local, screen_y, visible_h, mw)
         end
         @showing_image = true
       end
     end
 
-    def show_ascii_image(path, screen_y, max_h)
-      cols = [@pMain.w / 2, 60].min
+    def show_ascii_image(path, screen_y, max_h, cols = nil)
+      cols ||= [@pMain.w / 2, 60].min
       art = `chafa -s #{cols}x#{max_h} --format=symbols #{Shellwords.escape(path)} 2>/dev/null`
       return if art.empty?
       lines = art.split("\n")
