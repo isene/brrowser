@@ -419,7 +419,17 @@ module Brrowser
           unless File.exist?(local)
             response = @fetcher.fetch(src)
             next if response[:status] != 200
+            ct = response[:content_type].to_s
+            next unless ct.match?(/image/) || src.match?(/\.(png|jpe?g|gif|bmp|webp|svg|ico)/i)
             File.binwrite(local, response[:body])
+            # Convert SVG to PNG for termpix
+            if src.match?(/\.svg/i) || ct.include?("svg")
+              png_path = local.sub(/\.[^.]+$/, ".png")
+              system("convert", local, png_path, [:out, :err] => "/dev/null")
+              if File.exist?(png_path)
+                local = png_path
+              end
+            end
           end
           @img_cache[src] = local
         rescue

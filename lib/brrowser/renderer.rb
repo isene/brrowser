@@ -191,19 +191,32 @@ module Brrowser
       when "a"
         href = node["href"]
         text = collect_text(node)
-        return if text.strip.empty? && !node.at_css("img")
+        has_img = node.at_css("img")
+        return if text.strip.empty? && !has_img
 
         if href && !href.start_with?("#", "javascript:")
           href = resolve_url(href)
           link_index = @links.length
           @links << { index: link_index, href: href, text: text.strip }
+          if has_img
+            # Walk children so <img> elements get processed
+            @in_link = link_index
+            walk(node)
+            @in_link = nil
+          else
+            @line << text.fg(81).u
+            @col += text.length
+          end
           label = "[#{link_index}]"
-          styled = text.fg(81).u + label.fg(39)
-          @line << styled
-          @col += text.length + label.length
+          @line << label.fg(39)
+          @col += label.length
         else
-          @line << text.fg(81)
-          @col += text.length
+          if has_img
+            walk(node)
+          else
+            @line << text.fg(81)
+            @col += text.length
+          end
         end
       when "strong", "b"
         inline_walk(node, :b)
@@ -217,8 +230,9 @@ module Brrowser
         @col += text.length
       when "img"
         alt = node["alt"] || "image"
-        src = node["src"]
-        if src
+        src = node["src"] || node["data-src"] || ""
+        src = src.strip
+        if !src.empty?
           src = resolve_url(src)
           flush_line if @col > 0
           line_num = @output.length
