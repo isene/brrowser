@@ -178,7 +178,6 @@ module Brrowser
 
     def next_tab
       clear_images
-      @images_shown = false
       @current_tab = (@current_tab + 1) % @tabs.length
       @pMain.ix = current_tab.ix
       refresh_all
@@ -186,7 +185,6 @@ module Brrowser
 
     def prev_tab
       clear_images
-      @images_shown = false
       @current_tab = (@current_tab - 1) % @tabs.length
       @pMain.ix = current_tab.ix
       refresh_all
@@ -224,7 +222,6 @@ module Brrowser
       @pMain.ix = 0
       @status_msg = ""
       clear_images
-      @images_shown = false
       @last_img_count = 0
       start_image_downloads
     end
@@ -342,61 +339,65 @@ module Brrowser
 
     # Scrolling {{{2
     def scroll_down
+      clear_images if @showing_image
       @pMain.linedown
       current_tab.ix = @pMain.ix
     end
 
     def scroll_up
+      clear_images if @showing_image
       @pMain.lineup
       current_tab.ix = @pMain.ix
     end
 
     def page_down
-      clear_images
+      clear_images if @showing_image
       @pMain.pagedown
       current_tab.ix = @pMain.ix
-      show_visible_images
+      show_visible_image
     end
 
     def page_up
-      clear_images
+      clear_images if @showing_image
       @pMain.pageup
       current_tab.ix = @pMain.ix
-      show_visible_images
+      show_visible_image
     end
 
     def half_page_down
-      clear_images
+      clear_images if @showing_image
       half = (@h - 3) / 2
       half.times { @pMain.linedown }
       current_tab.ix = @pMain.ix
-      show_visible_images
+      show_visible_image
     end
 
     def half_page_up
-      clear_images
+      clear_images if @showing_image
       half = (@h - 3) / 2
       half.times { @pMain.lineup }
       current_tab.ix = @pMain.ix
-      show_visible_images
+      show_visible_image
     end
 
     def go_top
-      clear_images
+      clear_images if @showing_image
       @pMain.ix = 0
       current_tab.ix = 0
       refresh_main
+      show_visible_image
     end
 
     def go_bottom
-      clear_images
+      clear_images if @showing_image
       @pMain.bottom
       current_tab.ix = @pMain.ix
-      show_visible_images
+      show_visible_image
     end
 
     # Images {{{2
-    IMG_MAX_HEIGHT = 12  # Max lines per image
+    # Images display in the reserved blank lines from the renderer.
+    # Only one image shown at a time to avoid kitty protocol conflicts.
 
     def start_image_downloads
       return unless @termpix.supported?
@@ -435,28 +436,37 @@ module Brrowser
       end
     end
 
-    def show_visible_images
+    def show_visible_image
       return unless @termpix.supported?
       images = current_tab.images
       return if images.empty?
 
       viewport_top = @pMain.ix
       viewport_bottom = viewport_top + @pMain.h - 1
+      reserve = Brrowser::Renderer::IMG_RESERVE
 
       images.each do |img|
         line = img[:line] || 0
-        next unless line >= viewport_top && line <= viewport_bottom
+        img_bottom = line + reserve - 1
+        # Image visible if its reserved area overlaps viewport
+        next unless img_bottom >= viewport_top && line <= viewport_bottom
         local = @img_cache[img[:src]]
         next unless local && File.exist?(local)
 
-        screen_y = @pMain.y + (line - viewport_top)
-        remaining = viewport_bottom - line + 1
-        max_h = [remaining, IMG_MAX_HEIGHT].min
+        # Calculate screen position (clipped to viewport)
+        top_in_view = [line, viewport_top].max
+        bot_in_view = [img_bottom, viewport_bottom].min
+        screen_y = @pMain.y + (top_in_view - viewport_top)
+        visible_h = bot_in_view - top_in_view + 1
+        next if visible_h < 3  # Don't show if barely visible
+
         @termpix.show(local,
           x: @pMain.x + 1,
           y: screen_y,
           max_width: [@pMain.w / 2, 60].min,
-          max_height: max_h)
+          max_height: visible_h)
+        @showing_image = true
+        return  # Only show first visible image
       end
     end
 
@@ -469,6 +479,7 @@ module Brrowser
         height: @pMain.h,
         term_width: @w,
         term_height: @h)
+      @showing_image = false
     end
 
     # Search {{{2
@@ -643,7 +654,7 @@ module Brrowser
       refresh_all
       $stdin.getc while $stdin.wait_readable(0)
 
-      @images_shown = false
+      @showing_image = false
       @last_img_count = 0
 
       while @running
@@ -652,13 +663,12 @@ module Brrowser
           resize
         end
 
-        # Check for newly downloaded images
-        if @termpix.supported? && !@images_shown
+        # Auto-show first visible image when downloads complete
+        if @termpix.supported? && !@showing_image
           new_count = @img_cache.size
           if new_count > @last_img_count
             @last_img_count = new_count
-            show_visible_images
-            @images_shown = true
+            show_visible_image
           end
         end
 
@@ -701,14 +711,12 @@ module Brrowser
     end
 
     def toggle_images
-      if @images_shown
+      if @showing_image
         clear_images
-        @images_shown = false
         @status_msg = "Images hidden"
       else
-        show_visible_images
-        @images_shown = true
-        @status_msg = "Images shown"
+        show_visible_image
+        @status_msg = @showing_image ? "Images shown" : "No images in view"
       end
       refresh_cmd
     end

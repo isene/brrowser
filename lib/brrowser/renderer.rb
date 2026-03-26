@@ -11,6 +11,8 @@ module Brrowser
       form fieldset details summary hr br
     ].freeze
 
+    IMG_RESERVE = 10  # Blank lines reserved for each image
+
     attr_reader :links, :images
 
     def initialize(width)
@@ -236,10 +238,9 @@ module Brrowser
           src = resolve_url(src)
           flush_line if @col > 0
           line_num = @output.length
-          @images << { src: src, alt: alt, line: line_num }
-          placeholder = "[#{alt}]".fg(245).i
-          @line << placeholder
-          @col += alt.length + 2
+          @images << { src: src, alt: alt, line: line_num, height: IMG_RESERVE }
+          @output << "[#{alt}]".fg(245).i
+          (IMG_RESERVE - 1).times { @output << "" }
         end
       when "table"
         render_table(node)
