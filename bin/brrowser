@@ -45,9 +45,7 @@ module Brrowser
     <tr><td>o</td><td>Open URL</td></tr>
     <tr><td>O</td><td>Open URL (pre-filled with current)</td></tr>
     <tr><td>Enter</td><td>Follow link by number</td></tr>
-    <tr><td>f</td><td>Hint mode (follow link)</td></tr>
-    <tr><td>F</td><td>Hint mode (open in new tab)</td></tr>
-    <tr><td>H</td><td>Go back</td></tr>
+    <tr><td>H / Backspace</td><td>Go back</td></tr>
     <tr><td>L</td><td>Go forward</td></tr>
     <tr><td>r</td><td>Reload page</td></tr>
     </table>
@@ -434,67 +432,6 @@ module Brrowser
       end
     end
 
-    def hint_mode(new_tab: false)
-      links = current_tab.links
-      return if links.empty?
-
-      hints = generate_hints(links.length)
-      link_hints = links.zip(hints).map { |l, h| { link: l, hint: h } }
-
-      hint_display = link_hints.map { |lh| "#{lh[:hint].fg(220).b} #{lh[:link][:text]} ".fg(81) }
-      @pCmd.text = " Hints: type letters to follow (ESC cancel)"
-      @pCmd.refresh
-
-      # Show hints overlay in status
-      typed = ""
-      loop do
-        matches = link_hints.select { |lh| lh[:hint].start_with?(typed) }
-        if matches.length == 1 && matches[0][:hint] == typed
-          link = matches[0][:link]
-          if new_tab
-            new_tab_with(link[:href])
-          else
-            navigate(link[:href])
-          end
-          return
-        elsif matches.empty?
-          @status_msg = "No match"
-          refresh_cmd
-          return
-        end
-
-        display = matches[0..9].map { |m| "#{m[:hint].fg(220).b}:#{m[:link][:text][0..15]}".fg(81) }.join(" ")
-        @pCmd.text = " [#{typed}] #{display}"
-        @pCmd.refresh
-
-        chr = getchr
-        case chr
-        when "ESC"
-          refresh_cmd
-          return
-        when "BACK"
-          typed = typed[0..-2]
-        else
-          typed << chr if chr && chr.length == 1 && chr.match?(/[a-z]/)
-        end
-      end
-    end
-
-    def generate_hints(count)
-      hints = []
-      if count <= 26
-        count.times { |i| hints << (97 + i).chr }
-      else
-        "abcdefghijklmnopqrstuvwxyz".chars.each do |a|
-          "abcdefghijklmnopqrstuvwxyz".chars.each do |b|
-            hints << "#{a}#{b}"
-            return hints if hints.length >= count
-          end
-        end
-      end
-      hints
-    end
-
     def new_tab_with(url)
       tab = Tab.new
       @tabs.insert(@current_tab + 1, tab)
@@ -578,9 +515,9 @@ module Brrowser
       "LEFT"   => :prev_tab,       "RIGHT"   => :next_tab,
       "G"      => :go_bottom,
       "d"      => :close_tab,      "u"       => :undo_close_tab,
-      "f"      => :hint_mode,
       "o"      => :open_url,
       "H"      => :go_back,        "L"       => :go_forward,
+      "BACK"   => :go_back,
       "r"      => :reload,
       "J"      => :next_tab,       "K"       => :prev_tab,
       "/"      => :search_page,
@@ -628,11 +565,6 @@ module Brrowser
 
         if chr == "g"
           @g_pressed = true
-          next
-        end
-
-        if chr == "F"
-          hint_mode(new_tab: true)
           next
         end
 
