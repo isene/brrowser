@@ -461,7 +461,7 @@ module Brrowser
         next if visible_h < 3  # Don't show if barely visible
 
         @termpix.show(local,
-          x: @pMain.x + 1,
+          x: @pMain.x,
           y: screen_y,
           max_width: [@pMain.w / 2, 60].min,
           max_height: visible_h)

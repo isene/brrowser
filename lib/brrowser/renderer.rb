@@ -239,8 +239,7 @@ module Brrowser
           flush_line if @col > 0
           line_num = @output.length
           @images << { src: src, alt: alt, line: line_num, height: IMG_RESERVE }
-          @output << "[#{alt}]".fg(245).i
-          (IMG_RESERVE - 1).times { @output << "" }
+          IMG_RESERVE.times { @output << "" }
         end
       when "table"
         render_table(node)
