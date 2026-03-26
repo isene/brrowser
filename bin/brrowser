@@ -28,8 +28,10 @@ module Brrowser
     <tr><th>Key</th><th>Action</th></tr>
     <tr><td>j / Down</td><td>Scroll down</td></tr>
     <tr><td>k / Up</td><td>Scroll up</td></tr>
-    <tr><td>h / Left</td><td>Scroll left (not yet implemented)</td></tr>
-    <tr><td>l / Right</td><td>Scroll right (not yet implemented)</td></tr>
+    <tr><td>&lt; / h</td><td>Scroll left</td></tr>
+    <tr><td>&gt; / l</td><td>Scroll right</td></tr>
+    <tr><td>Left</td><td>Previous tab</td></tr>
+    <tr><td>Right</td><td>Next tab</td></tr>
     <tr><td>gg</td><td>Go to top</td></tr>
     <tr><td>G</td><td>Go to bottom</td></tr>
     <tr><td>Ctrl-d</td><td>Half page down</td></tr>
@@ -52,8 +54,8 @@ module Brrowser
     <h2>Tabs</h2>
     <table>
     <tr><th>Key</th><th>Action</th></tr>
-    <tr><td>J</td><td>Next tab</td></tr>
-    <tr><td>K</td><td>Previous tab</td></tr>
+    <tr><td>J / Right</td><td>Next tab</td></tr>
+    <tr><td>K / Left</td><td>Previous tab</td></tr>
     <tr><td>d</td><td>Close tab</td></tr>
     <tr><td>u</td><td>Undo close tab</td></tr>
     </table>
@@ -370,12 +372,10 @@ module Brrowser
 
     # Search {{{2
     def search_page
-      @pCmd.text = " /".fg(81)
-      @pCmd.refresh
-      @pInput.x = 3
-      @pInput.w = @w - 2
+      @pInput.x = 2
+      @pInput.w = @w - 1
       @pInput.y = @h
-      term = @pInput.editline("".fg(81))
+      term = @pInput.ask("/", "")
       return if term.nil? || term.strip.empty?
       @search_term = term.strip
       find_matches
@@ -419,12 +419,10 @@ module Brrowser
     # Link following {{{2
     def follow_link_prompt
       return if current_tab.links.empty?
-      @pCmd.text = " Link #: ".fg(81)
-      @pCmd.refresh
-      @pInput.x = 10
-      @pInput.w = @w - 9
+      @pInput.x = 2
+      @pInput.w = @w - 1
       @pInput.y = @h
-      num = @pInput.editline("")
+      num = @pInput.ask("Link #: ", "")
       return if num.nil? || num.strip.empty?
       idx = num.strip.to_i
       link = current_tab.links.find { |l| l[:index] == idx }
@@ -506,24 +504,20 @@ module Brrowser
 
     # Open URL {{{2
     def open_url(prefill = "")
-      @pCmd.text = " :open ".fg(81)
-      @pCmd.refresh
-      @pInput.x = 8
-      @pInput.w = @w - 7
+      @pInput.x = 2
+      @pInput.w = @w - 1
       @pInput.y = @h
-      url = @pInput.editline(prefill)
+      url = @pInput.ask(":open ", prefill)
       return if url.nil? || url.strip.empty?
       navigate(url.strip)
     end
 
     # Command mode {{{2
     def command_mode
-      @pCmd.text = " :".fg(81)
-      @pCmd.refresh
-      @pInput.x = 3
-      @pInput.w = @w - 2
+      @pInput.x = 2
+      @pInput.w = @w - 1
       @pInput.y = @h
-      cmd = @pInput.editline("")
+      cmd = @pInput.ask(":", "")
       return if cmd.nil? || cmd.strip.empty?
       execute_command(cmd.strip)
     end
@@ -581,6 +575,7 @@ module Brrowser
     NORMAL_KEYMAP = {
       "j"      => :scroll_down,    "k"       => :scroll_up,
       "DOWN"   => :scroll_down,    "UP"      => :scroll_up,
+      "LEFT"   => :prev_tab,       "RIGHT"   => :next_tab,
       "G"      => :go_bottom,
       "d"      => :close_tab,      "u"       => :undo_close_tab,
       "f"      => :hint_mode,
