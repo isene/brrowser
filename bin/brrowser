@@ -12,6 +12,7 @@ require 'fileutils'
 require 'yaml'
 require 'shellwords'
 require 'set'
+require 'json'
 
 require_relative '../lib/brrowser/tab'
 require_relative '../lib/brrowser/fetcher'
@@ -123,6 +124,7 @@ module Brrowser
     <tr><td>' + 0-9</td><td>Go to quickmark</td></tr>
     <tr><td>i</td><td>Toggle images</td></tr>
     <tr><td>p</td><td>Show stored password for site</td></tr>
+    <tr><td>I</td><td>AI summary of page</td></tr>
     <tr><td>P</td><td>Preferences</td></tr>
     <tr><td>?</td><td>This help page</td></tr>
     <tr><td>q</td><td>Quit</td></tr>
@@ -799,6 +801,86 @@ module Brrowser
       refresh_all
     end
 
+    # AI summary {{{2
+    def ai_summarize
+      key_file = "/home/.safe/openai.txt"
+      unless File.exist?(key_file)
+        @status_msg = "No OpenAI key found at #{key_file}"
+        refresh_cmd
+        return
+      end
+      api_key = File.read(key_file).strip
+
+      # Get page text (strip ANSI)
+      text = current_tab.content.to_s.gsub(/\e\[[0-9;]*m/, "")
+      if text.strip.empty?
+        @status_msg = "No content to summarize"
+        refresh_cmd
+        return
+      end
+      # Truncate to ~4000 chars to fit in context
+      text = text[0..4000] if text.length > 4000
+
+      @status_msg = "AI is thinking..."
+      refresh_cmd
+
+      prompt = "Summarize the following web page concisely. Include key points, main topics, and any important links or actions. Page title: #{current_tab.title}\nURL: #{current_tab.url}\n\nContent:\n#{text}"
+
+      begin
+        uri = URI.parse("https://api.openai.com/v1/chat/completions")
+        http = Net::HTTP.new(uri.host, uri.port)
+        http.use_ssl = true
+        http.read_timeout = 30
+        req = Net::HTTP::Post.new(uri.path)
+        req["Authorization"] = "Bearer #{api_key}"
+        req["Content-Type"] = "application/json"
+        req.body = JSON.generate({
+          model: "gpt-4o-mini",
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 600
+        })
+        response = http.request(req)
+        data = JSON.parse(response.body)
+        answer = data.dig("choices", 0, "message", "content") || "No response from AI"
+      rescue => e
+        answer = "AI error: #{e.message}"
+      end
+
+      # Show in popup
+      pw = [@w - 10, 80].min
+      ph = [@h - 6, 30].min
+      px = (@w - pw) / 2
+      py = (@h - ph) / 2
+      popup = Pane.new(px, py, pw, ph, 230, 234)
+      popup.border = true
+      popup.scroll = true
+      popup.text = " AI Summary\n\n#{answer}"
+      popup.refresh
+
+      loop do
+        chr = getchr
+        case chr
+        when "ESC", "q", "I"
+          break
+        when "j", "DOWN"
+          popup.linedown
+        when "k", "UP"
+          popup.lineup
+        when "PgDOWN", " "
+          popup.pagedown
+        when "PgUP"
+          popup.pageup
+        end
+      end
+
+      popup.clear
+      @pInfo.full_refresh
+      @pTab.full_refresh
+      @pMain.full_refresh
+      @pCmd.full_refresh
+      @status_msg = ""
+    end
+
     # Edit source {{{2
     def edit_source
       return unless current_tab.url
@@ -1348,6 +1430,7 @@ module Brrowser
       "'"      => :goto_quickmark,
       "i"      => :toggle_images,
       "p"      => :show_password,
+      "I"      => :ai_summarize,
       "P"      => :show_preferences,
       "q"      => :quit_browser,
     }
