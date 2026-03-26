@@ -5,6 +5,10 @@
 
 require 'rcurses'
 require 'io/wait'
+require 'termpix'
+require 'tmpdir'
+require 'digest'
+require 'fileutils'
 
 require_relative '../lib/brrowser/tab'
 require_relative '../lib/brrowser/fetcher'
@@ -102,6 +106,10 @@ module Brrowser
       @search_index   = 0
       @status_msg  = ""
       @running     = true
+      @termpix     = Termpix::Display.new
+      @img_cache   = {}  # url => local path
+      @img_dir     = File.join(Dir.tmpdir, "brrowser_images_#{Process.pid}")
+      Dir.mkdir(@img_dir) unless Dir.exist?(@img_dir)
 
       setup_panes
       new_tab(url || HOMEPAGE)
@@ -169,12 +177,14 @@ module Brrowser
     end
 
     def next_tab
+      clear_images
       @current_tab = (@current_tab + 1) % @tabs.length
       @pMain.ix = current_tab.ix
       refresh_all
     end
 
     def prev_tab
+      clear_images
       @current_tab = (@current_tab - 1) % @tabs.length
       @pMain.ix = current_tab.ix
       refresh_all
@@ -211,6 +221,8 @@ module Brrowser
       current_tab.ix = 0
       @pMain.ix = 0
       @status_msg = ""
+      clear_images
+      download_images
     end
 
     def re_render
@@ -311,6 +323,7 @@ module Brrowser
     def refresh_main
       @pMain.text = current_tab.content.to_s
       @pMain.refresh
+      show_images
     end
 
     def refresh_cmd
@@ -326,46 +339,128 @@ module Brrowser
 
     # Scrolling {{{2
     def scroll_down
+      clear_images
       @pMain.linedown
       current_tab.ix = @pMain.ix
+      show_images
     end
 
     def scroll_up
+      clear_images
       @pMain.lineup
       current_tab.ix = @pMain.ix
+      show_images
     end
 
     def page_down
+      clear_images
       @pMain.pagedown
       current_tab.ix = @pMain.ix
+      show_images
     end
 
     def page_up
+      clear_images
       @pMain.pageup
       current_tab.ix = @pMain.ix
+      show_images
     end
 
     def half_page_down
+      clear_images
       half = (@h - 3) / 2
       half.times { @pMain.linedown }
       current_tab.ix = @pMain.ix
+      show_images
     end
 
     def half_page_up
+      clear_images
       half = (@h - 3) / 2
       half.times { @pMain.lineup }
       current_tab.ix = @pMain.ix
+      show_images
     end
 
     def go_top
+      clear_images
       @pMain.ix = 0
       current_tab.ix = 0
       refresh_main
     end
 
     def go_bottom
+      clear_images
       @pMain.bottom
       current_tab.ix = @pMain.ix
+      show_images
+    end
+
+    # Images {{{2
+    def download_images
+      return unless @termpix.supported?
+      images = current_tab.images
+      return if images.empty?
+
+      images.each do |img|
+        next if @img_cache[img[:src]]
+        Thread.new(img[:src]) do |src|
+          begin
+            uri = URI.parse(src)
+            next unless uri.scheme&.match?(/^https?$/)
+            ext = File.extname(uri.path)[0..5]
+            ext = ".img" if ext.empty?
+            local = File.join(@img_dir, "#{Digest::MD5.hexdigest(src)}#{ext}")
+            unless File.exist?(local)
+              response = @fetcher.fetch(src)
+              next if response[:status] != 200
+              File.binwrite(local, response[:body])
+            end
+            @img_cache[src] = local
+          rescue
+            # skip failed downloads
+          end
+        end
+      end
+    end
+
+    def show_images
+      return unless @termpix.supported?
+      images = current_tab.images
+      return if images.empty?
+
+      viewport_top = @pMain.ix
+      viewport_bottom = viewport_top + @pMain.h - 1
+      shown = false
+
+      images.each do |img|
+        line = img[:line] || 0
+        next unless line >= viewport_top && line <= viewport_bottom
+        local = @img_cache[img[:src]]
+        next unless local && File.exist?(local)
+
+        screen_y = @pMain.y + (line - viewport_top)
+        max_h = viewport_bottom - line + 1
+        max_h = [max_h, @pMain.h / 2].min  # Cap at half pane height
+        @termpix.show(local,
+          x: @pMain.x,
+          y: screen_y,
+          max_width: @pMain.w - 2,
+          max_height: max_h)
+        shown = true
+      end
+      shown
+    end
+
+    def clear_images
+      return unless @termpix.supported?
+      @termpix.clear(
+        x: @pMain.x,
+        y: @pMain.y,
+        width: @pMain.w,
+        height: @pMain.h,
+        term_width: @w,
+        term_height: @h)
     end
 
     # Search {{{2
@@ -585,6 +680,8 @@ module Brrowser
       puts e.backtrace.first(5).join("\n")
       exit 1
     ensure
+      clear_images
+      FileUtils.rm_rf(@img_dir) if @img_dir && Dir.exist?(@img_dir)
       Rcurses.cleanup!
     end
 

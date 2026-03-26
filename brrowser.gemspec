@@ -14,4 +14,5 @@ Gem::Specification.new do |s|
   s.required_ruby_version = '>= 3.0'
   s.add_runtime_dependency 'rcurses', '~> 6.0'
   s.add_runtime_dependency 'nokogiri', '~> 1.0'
+  s.add_runtime_dependency 'termpix', '~> 0.3'
 end

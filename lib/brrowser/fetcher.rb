@@ -46,10 +46,13 @@ module Brrowser
           uri = location.start_with?("http") ? URI.parse(location) : URI.join(uri, location)
           redirects += 1
         when Net::HTTPSuccess
+          ct = response["content-type"] || ""
+          body = response.body
+          body = body.force_encoding("UTF-8") if ct.match?(/text|html|json|xml/)
           return {
-            body:         response.body.force_encoding("UTF-8"),
+            body:         body,
             url:          uri.to_s,
-            content_type: response["content-type"] || "",
+            content_type: ct,
             status:       response.code.to_i
           }
         else

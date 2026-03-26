@@ -220,11 +220,13 @@ module Brrowser
         src = node["src"]
         if src
           src = resolve_url(src)
-          @images << { src: src, alt: alt }
+          flush_line if @col > 0
+          line_num = @output.length
+          @images << { src: src, alt: alt, line: line_num }
+          placeholder = "[#{alt}]".fg(245).i
+          @line << placeholder
+          @col += alt.length + 2
         end
-        placeholder = "[#{alt}]".fg(245).i
-        @line << placeholder
-        @col += alt.length + 2
       when "table"
         render_table(node)
       when "form"
