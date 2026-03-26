@@ -48,6 +48,7 @@ module Brrowser
     <tr><th>Key</th><th>Action</th></tr>
     <tr><td>o</td><td>Open URL</td></tr>
     <tr><td>O</td><td>Open URL (pre-filled with current)</td></tr>
+    <tr><td>t</td><td>Open URL in new tab</td></tr>
     <tr><td>Enter</td><td>Follow link by number</td></tr>
     <tr><td>H / Backspace</td><td>Go back</td></tr>
     <tr><td>L</td><td>Go forward</td></tr>
@@ -487,7 +488,10 @@ module Brrowser
       @pInput.w = @w - 1
       @pInput.y = @h
       term = @pInput.ask("/", "")
-      return if term.nil? || term.strip.empty?
+      if term.nil? || term.strip.empty?
+        refresh_cmd
+        return
+      end
       @search_term = term.strip
       find_matches
       search_next
@@ -534,7 +538,10 @@ module Brrowser
       @pInput.w = @w - 1
       @pInput.y = @h
       num = @pInput.ask("Link #: ", "")
-      return if num.nil? || num.strip.empty?
+      if num.nil? || num.strip.empty?
+        refresh_cmd
+        return
+      end
       idx = num.strip.to_i
       link = current_tab.links.find { |l| l[:index] == idx }
       if link
@@ -558,8 +565,23 @@ module Brrowser
       @pInput.w = @w - 1
       @pInput.y = @h
       url = @pInput.ask(":open ", prefill)
-      return if url.nil? || url.strip.empty?
+      if url.nil? || url.strip.empty?
+        refresh_cmd
+        return
+      end
       navigate(url.strip)
+    end
+
+    def tabopen_url
+      @pInput.x = 2
+      @pInput.w = @w - 1
+      @pInput.y = @h
+      url = @pInput.ask(":tabopen ", "")
+      if url.nil? || url.strip.empty?
+        refresh_cmd
+        return
+      end
+      new_tab_with(url.strip)
     end
 
     # Command mode {{{2
@@ -568,7 +590,10 @@ module Brrowser
       @pInput.w = @w - 1
       @pInput.y = @h
       cmd = @pInput.ask(":", "")
-      return if cmd.nil? || cmd.strip.empty?
+      if cmd.nil? || cmd.strip.empty?
+        refresh_cmd
+        return
+      end
       execute_command(cmd.strip)
     end
 
@@ -629,6 +654,7 @@ module Brrowser
       "G"      => :go_bottom,
       "d"      => :close_tab,      "u"       => :undo_close_tab,
       "o"      => :open_url,
+      "t"      => :tabopen_url,
       "H"      => :go_back,        "L"       => :go_forward,
       "BACK"   => :go_back,
       "r"      => :reload,
