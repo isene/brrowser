@@ -105,10 +105,14 @@ module Brrowser
     <tr><td>:quit / :qa</td><td>Quit brrowser</td></tr>
     <tr><td>:back</td><td>Go back</td></tr>
     <tr><td>:forward</td><td>Go forward</td></tr>
+    <tr><td>:bookmark / :bm</td><td>Bookmark (or open by name)</td></tr>
+    <tr><td>:bookmarks / :bms</td><td>List bookmarks</td></tr>
+    <tr><td>:download / :dl</td><td>Download file</td></tr>
     </table>
     <h2>Other</h2>
     <table>
     <tr><th>Key</th><th>Action</th></tr>
+    <tr><td>B</td><td>Bookmark current page</td></tr>
     <tr><td>i</td><td>Toggle images</td></tr>
     <tr><td>P</td><td>Preferences</td></tr>
     <tr><td>?</td><td>This help page</td></tr>
@@ -737,6 +741,16 @@ module Brrowser
         reload
       when "help"
         show_help
+      when "bookmark", "bm"
+        if args
+          open_bookmark(args)
+        else
+          add_bookmark
+        end
+      when "bookmarks", "bms"
+        show_bookmarks
+      when "download", "dl"
+        download_file(args) if args
       else
         @status_msg = "Unknown command: #{command}"
         refresh_cmd
@@ -758,6 +772,102 @@ module Brrowser
       current_tab.ix = 0
       @pMain.ix = 0
       refresh_all
+    end
+
+    # Bookmarks {{{2
+    BOOKMARKS_FILE = File.join(CONFIG_DIR, "bookmarks.yml")
+
+    def load_bookmarks
+      @bookmarks = if File.exist?(BOOKMARKS_FILE)
+        YAML.safe_load(File.read(BOOKMARKS_FILE)) rescue []
+      else
+        []
+      end
+      @bookmarks = [] unless @bookmarks.is_a?(Array)
+    end
+
+    def save_bookmarks
+      Dir.mkdir(CONFIG_DIR) unless Dir.exist?(CONFIG_DIR)
+      File.write(BOOKMARKS_FILE, @bookmarks.to_yaml)
+    end
+
+    def add_bookmark
+      return unless current_tab.url
+      entry = { "url" => current_tab.url, "title" => current_tab.title.to_s }
+      load_bookmarks
+      unless @bookmarks.any? { |b| b["url"] == entry["url"] }
+        @bookmarks << entry
+        save_bookmarks
+        @status_msg = "Bookmarked: #{entry["title"]}"
+      else
+        @status_msg = "Already bookmarked"
+      end
+      refresh_cmd
+    end
+
+    def open_bookmark(query)
+      load_bookmarks
+      match = @bookmarks.find { |b| b["title"]&.downcase&.include?(query.downcase) || b["url"]&.include?(query) }
+      if match
+        navigate(match["url"])
+      else
+        @status_msg = "No bookmark matching: #{query}"
+        refresh_cmd
+      end
+    end
+
+    def show_bookmarks
+      load_bookmarks
+      if @bookmarks.empty?
+        @status_msg = "No bookmarks"
+        refresh_cmd
+        return
+      end
+      html = "<html><body><h1>Bookmarks</h1><ul>"
+      @bookmarks.each { |b| html << "<li><a href=\"#{b["url"]}\">#{b["title"] || b["url"]}</a></li>" }
+      html << "</ul></body></html>"
+
+      tab = Tab.new
+      @tabs.insert(@current_tab + 1, tab)
+      @current_tab += 1
+      current_tab.url = "about:bookmarks"
+      renderer = Renderer.new(@w - 2)
+      page = renderer.render(html)
+      current_tab.title   = "Bookmarks"
+      current_tab.content = page[:text]
+      current_tab.links   = page[:links]
+      current_tab.images  = []
+      current_tab.ix = 0
+      @pMain.ix = 0
+      refresh_all
+    end
+
+    # Downloads {{{2
+    def download_file(url)
+      url = resolve_search(url) unless url.match?(%r{^https?://})
+      @status_msg = "Downloading #{url}..."
+      refresh_cmd
+      result = @fetcher.fetch(url)
+      if result[:status] == 200
+        filename = File.basename(URI.parse(result[:url]).path)
+        filename = "download" if filename.empty?
+        dir = File.expand_path("~/Downloads")
+        Dir.mkdir(dir) unless Dir.exist?(dir)
+        path = File.join(dir, filename)
+        # Avoid overwriting
+        if File.exist?(path)
+          ext = File.extname(filename)
+          base = File.basename(filename, ext)
+          i = 1
+          i += 1 while File.exist?(File.join(dir, "#{base}_#{i}#{ext}"))
+          path = File.join(dir, "#{base}_#{i}#{ext}")
+        end
+        File.binwrite(path, result[:body])
+        @status_msg = "Saved: #{path} (#{result[:body].length} bytes)"
+      else
+        @status_msg = "Download failed: #{result[:status]}"
+      end
+      refresh_cmd
     end
 
     # Config {{{2
@@ -919,6 +1029,7 @@ module Brrowser
       "C-D"    => :half_page_down, "C-U"     => :half_page_up,
       "PgDOWN" => :page_down,      "PgUP"    => :page_up,
       " "      => :page_down,
+      "B"      => :add_bookmark,
       "i"      => :toggle_images,
       "P"      => :show_preferences,
       "q"      => :quit_browser,

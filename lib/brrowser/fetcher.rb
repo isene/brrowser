@@ -1,15 +1,17 @@
 require 'net/http'
 require 'uri'
 require 'openssl'
+require 'yaml'
 
 module Brrowser
   class Fetcher
     MAX_REDIRECTS = 10
     TIMEOUT       = 15
     USER_AGENT    = "brrowser/0.1 (terminal browser)"
+    COOKIE_FILE   = File.join(Dir.home, ".brrowser", "cookies.yml")
 
     def initialize
-      @cookies = {}
+      @cookies = load_cookies
     end
 
     def fetch(url)
@@ -82,11 +84,23 @@ module Brrowser
         @cookies[uri.host] ||= {}
         @cookies[uri.host][name] = val
       end
+      save_cookies
     end
 
     def cookies_for(uri)
       return "" unless @cookies[uri.host]
       @cookies[uri.host].map { |k, v| "#{k}=#{v}" }.join("; ")
+    end
+
+    def load_cookies
+      return {} unless File.exist?(COOKIE_FILE)
+      YAML.safe_load(File.read(COOKIE_FILE), permitted_classes: [Symbol]) rescue {}
+    end
+
+    def save_cookies
+      dir = File.dirname(COOKIE_FILE)
+      Dir.mkdir(dir) unless Dir.exist?(dir)
+      File.write(COOKIE_FILE, @cookies.to_yaml)
     end
   end
 end

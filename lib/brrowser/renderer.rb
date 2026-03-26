@@ -377,6 +377,13 @@ module Brrowser
       max_cols = rows.map(&:length).max
       rows.each { |r| r.fill("", r.length...max_cols) }
 
+      # For very wide tables (too many columns), use vertical layout
+      available = @width - @indent
+      if max_cols > (available / 8)
+        render_table_vertical(rows, table_node)
+        return
+      end
+
       col_widths = Array.new(max_cols, 0)
       rows.each do |row|
         row.each_with_index do |cell, i|
@@ -384,10 +391,10 @@ module Brrowser
         end
       end
 
-      available = @width - @indent - (max_cols - 1) * 3
+      space = available - (max_cols - 1) * 3
       total = col_widths.sum
-      if total > available && total > 0
-        col_widths = col_widths.map { |w| [(w.to_f / total * available).floor, 4].max }
+      if total > space && total > 0
+        col_widths = col_widths.map { |w| [(w.to_f / total * space).floor, 6].max }
       end
 
       rows.each_with_index do |row, ri|
@@ -396,9 +403,7 @@ module Brrowser
           cell.length > w ? cell[0...w] : cell.ljust(w)
         end
         line = parts.join(" \u2502 ".fg(240))
-        if ri == 0 && table_node.at_css("th")
-          line = line.b
-        end
+        line = line.b if ri == 0 && table_node.at_css("th")
         @output << (" " * @indent) + line
 
         if ri == 0 && table_node.at_css("th")
@@ -408,6 +413,20 @@ module Brrowser
       end
 
       ensure_blank_line
+    end
+
+    def render_table_vertical(rows, table_node)
+      # Render each row as a block with label: value pairs
+      headers = table_node.css("th").any? ? rows.shift : nil
+
+      rows.each do |row|
+        row.each_with_index do |cell, ci|
+          next if cell.strip.empty?
+          label = headers && headers[ci] ? headers[ci] : "Col #{ci + 1}"
+          @output << (" " * @indent) + "#{label}: ".fg(245).b + cell
+        end
+        @output << (" " * @indent) + ("\u2500" * 20).fg(240)
+      end
     end
   end
 end
