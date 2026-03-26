@@ -303,6 +303,7 @@ module Brrowser
     end
 
     def resolve_url(href)
+      return "https:#{href}" if href.start_with?("//")
       return href if href.match?(%r{^https?://})
       return href unless @base_url
       begin
