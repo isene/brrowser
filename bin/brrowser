@@ -78,6 +78,7 @@ module Brrowser
     <tr><td>Tab</td><td>Jump to next link</td></tr>
     <tr><td>Shift-Tab</td><td>Jump to previous link</td></tr>
     <tr><td>Enter</td><td>Follow current/numbered link</td></tr>
+    <tr><td>e</td><td>Edit page source in $EDITOR</td></tr>
     <tr><td>f</td><td>Fill and submit form</td></tr>
     <tr><td>H / Backspace</td><td>Go back</td></tr>
     <tr><td>L</td><td>Go forward</td></tr>
@@ -390,15 +391,19 @@ module Brrowser
 
     # Scrolling {{{2
     def scroll_down
+      had_images = @showing_image
       clear_images if @showing_image
       @pMain.linedown
       current_tab.ix = @pMain.ix
+      show_visible_image if had_images
     end
 
     def scroll_up
+      had_images = @showing_image
       clear_images if @showing_image
       @pMain.lineup
       current_tab.ix = @pMain.ix
+      show_visible_image if had_images
     end
 
     def page_down
@@ -791,6 +796,29 @@ module Brrowser
       current_tab.images  = []
       current_tab.ix = 0
       @pMain.ix = 0
+      refresh_all
+    end
+
+    # Edit source {{{2
+    def edit_source
+      return unless current_tab.url
+      result = @fetcher.fetch(current_tab.url)
+      return if result[:status] != 200
+
+      tmpfile = File.join(Dir.tmpdir, "brrowser_edit_#{Process.pid}.html")
+      File.write(tmpfile, result[:body])
+
+      editor = ENV["EDITOR"] || "vim"
+      Rcurses.cleanup!
+      system("#{editor} #{Shellwords.escape(tmpfile)}")
+      Rcurses.init!
+
+      # Re-render the edited content
+      if File.exist?(tmpfile)
+        edited = File.read(tmpfile)
+        render_page({ body: edited, url: current_tab.url, content_type: "text/html", status: 200 })
+        File.delete(tmpfile)
+      end
       refresh_all
     end
 
@@ -1312,6 +1340,7 @@ module Brrowser
       "C-D"    => :half_page_down, "C-U"     => :half_page_up,
       "PgDOWN" => :page_down,      "PgUP"    => :page_up,
       " "      => :page_down,
+      "e"      => :edit_source,
       "f"      => :fill_form,
       "b"      => :add_bookmark,
       "B"      => :show_bookmarks,
