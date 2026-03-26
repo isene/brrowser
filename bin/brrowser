@@ -81,6 +81,7 @@ module Brrowser
     <h2>Other</h2>
     <table>
     <tr><th>Key</th><th>Action</th></tr>
+    <tr><td>i</td><td>Toggle images</td></tr>
     <tr><td>?</td><td>This help page</td></tr>
     <tr><td>q</td><td>Quit</td></tr>
     </table>
@@ -108,6 +109,7 @@ module Brrowser
       @running     = true
       @termpix     = Termpix::Display.new
       @img_cache   = {}  # url => local path
+      @img_thread  = nil
       @img_dir     = File.join(Dir.tmpdir, "brrowser_images_#{Process.pid}")
       Dir.mkdir(@img_dir) unless Dir.exist?(@img_dir)
 
@@ -176,6 +178,7 @@ module Brrowser
 
     def next_tab
       clear_images
+      @images_shown = false
       @current_tab = (@current_tab + 1) % @tabs.length
       @pMain.ix = current_tab.ix
       refresh_all
@@ -183,6 +186,7 @@ module Brrowser
 
     def prev_tab
       clear_images
+      @images_shown = false
       @current_tab = (@current_tab - 1) % @tabs.length
       @pMain.ix = current_tab.ix
       refresh_all
@@ -220,7 +224,9 @@ module Brrowser
       @pMain.ix = 0
       @status_msg = ""
       clear_images
-      download_images
+      @images_shown = false
+      @last_img_count = 0
+      start_image_downloads
     end
 
     def re_render
@@ -321,7 +327,6 @@ module Brrowser
     def refresh_main
       @pMain.text = current_tab.content.to_s
       @pMain.refresh
-      show_images
     end
 
     def refresh_cmd
@@ -337,31 +342,27 @@ module Brrowser
 
     # Scrolling {{{2
     def scroll_down
-      clear_images
       @pMain.linedown
       current_tab.ix = @pMain.ix
-      show_images
     end
 
     def scroll_up
-      clear_images
       @pMain.lineup
       current_tab.ix = @pMain.ix
-      show_images
     end
 
     def page_down
       clear_images
       @pMain.pagedown
       current_tab.ix = @pMain.ix
-      show_images
+      show_visible_images
     end
 
     def page_up
       clear_images
       @pMain.pageup
       current_tab.ix = @pMain.ix
-      show_images
+      show_visible_images
     end
 
     def half_page_down
@@ -369,7 +370,7 @@ module Brrowser
       half = (@h - 3) / 2
       half.times { @pMain.linedown }
       current_tab.ix = @pMain.ix
-      show_images
+      show_visible_images
     end
 
     def half_page_up
@@ -377,7 +378,7 @@ module Brrowser
       half = (@h - 3) / 2
       half.times { @pMain.lineup }
       current_tab.ix = @pMain.ix
-      show_images
+      show_visible_images
     end
 
     def go_top
@@ -391,61 +392,56 @@ module Brrowser
       clear_images
       @pMain.bottom
       current_tab.ix = @pMain.ix
-      show_images
+      show_visible_images
     end
 
     # Images {{{2
-    def download_images
+    IMG_MAX_HEIGHT = 12  # Max lines per image
+
+    def start_image_downloads
       return unless @termpix.supported?
       images = current_tab.images
       return if images.empty?
 
-      viewport_top = @pMain.ix
-      viewport_bottom = viewport_top + @pMain.h - 1
-
-      images.each do |img|
-        next if @img_cache[img[:src]]
-        src = img[:src]
-        src = "https:#{src}" if src.start_with?("//")
-        next unless src.match?(%r{^https?://})
-        line = img[:line] || 0
-        # Only download images near the viewport
-        next unless line >= viewport_top - @pMain.h && line <= viewport_bottom + @pMain.h
-        begin
-          uri = URI.parse(src)
-          ext = File.extname(uri.path)[0..5]
-          ext = ".png" if ext.empty?
-          local = File.join(@img_dir, "#{Digest::MD5.hexdigest(src)}#{ext}")
-          unless File.exist?(local)
-            response = @fetcher.fetch(src)
-            next if response[:status] != 200
-            ct = response[:content_type].to_s
-            next unless ct.match?(/image/) || src.match?(/\.(png|jpe?g|gif|bmp|webp|svg|ico)/i)
-            File.binwrite(local, response[:body])
-            # Convert SVG to PNG for termpix
-            if src.match?(/\.svg/i) || ct.include?("svg")
-              png_path = local.sub(/\.[^.]+$/, ".png")
-              system("convert", local, png_path, [:out, :err] => "/dev/null")
-              if File.exist?(png_path)
-                local = png_path
+      @img_thread = Thread.new do
+        images.each do |img|
+          break unless @running
+          next if @img_cache[img[:src]]
+          src = img[:src]
+          src = "https:#{src}" if src.start_with?("//")
+          next unless src.match?(%r{^https?://})
+          begin
+            uri = URI.parse(src)
+            ext = File.extname(uri.path)[0..5]
+            ext = ".png" if ext.empty?
+            local = File.join(@img_dir, "#{Digest::MD5.hexdigest(src)}#{ext}")
+            unless File.exist?(local)
+              response = @fetcher.fetch(src)
+              next if response[:status] != 200
+              ct = response[:content_type].to_s
+              next unless ct.match?(/image/) || src.match?(/\.(png|jpe?g|gif|bmp|webp|svg|ico)/i)
+              File.binwrite(local, response[:body])
+              if src.match?(/\.svg/i) || ct.include?("svg")
+                png_path = local.sub(/\.[^.]+$/, ".png")
+                system("convert", local, png_path, [:out, :err] => "/dev/null")
+                local = png_path if File.exist?(png_path)
               end
             end
+            @img_cache[src] = local
+          rescue
+            # skip failed downloads
           end
-          @img_cache[src] = local
-        rescue
-          # skip failed downloads
         end
       end
     end
 
-    def show_images
+    def show_visible_images
       return unless @termpix.supported?
       images = current_tab.images
       return if images.empty?
 
       viewport_top = @pMain.ix
       viewport_bottom = viewport_top + @pMain.h - 1
-      shown = false
 
       images.each do |img|
         line = img[:line] || 0
@@ -454,16 +450,14 @@ module Brrowser
         next unless local && File.exist?(local)
 
         screen_y = @pMain.y + (line - viewport_top)
-        max_h = viewport_bottom - line + 1
-        max_h = [max_h, @pMain.h / 2].min  # Cap at half pane height
+        remaining = viewport_bottom - line + 1
+        max_h = [remaining, IMG_MAX_HEIGHT].min
         @termpix.show(local,
-          x: @pMain.x,
+          x: @pMain.x + 1,
           y: screen_y,
-          max_width: @pMain.w - 2,
+          max_width: [@pMain.w / 2, 60].min,
           max_height: max_h)
-        shown = true
       end
-      shown
     end
 
     def clear_images
@@ -637,6 +631,7 @@ module Brrowser
       "C-D"    => :half_page_down, "C-U"     => :half_page_up,
       "PgDOWN" => :page_down,      "PgUP"    => :page_up,
       " "      => :page_down,
+      "i"      => :toggle_images,
       "q"      => :quit_browser,
     }
 
@@ -648,10 +643,23 @@ module Brrowser
       refresh_all
       $stdin.getc while $stdin.wait_readable(0)
 
+      @images_shown = false
+      @last_img_count = 0
+
       while @running
         if @winch
           @winch = false
           resize
+        end
+
+        # Check for newly downloaded images
+        if @termpix.supported? && !@images_shown
+          new_count = @img_cache.size
+          if new_count > @last_img_count
+            @last_img_count = new_count
+            show_visible_images
+            @images_shown = true
+          end
         end
 
         chr = getchr(1)
@@ -690,6 +698,19 @@ module Brrowser
       clear_images
       FileUtils.rm_rf(@img_dir) if @img_dir && Dir.exist?(@img_dir)
       Rcurses.cleanup!
+    end
+
+    def toggle_images
+      if @images_shown
+        clear_images
+        @images_shown = false
+        @status_msg = "Images hidden"
+      else
+        show_visible_images
+        @images_shown = true
+        @status_msg = "Images shown"
+      end
+      refresh_cmd
     end
 
     def quit_browser
