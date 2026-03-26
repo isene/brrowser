@@ -879,6 +879,7 @@ module Brrowser
       @pMain.full_refresh
       @pCmd.full_refresh
       @status_msg = ""
+      show_visible_image
     end
 
     # Edit source {{{2
@@ -1398,6 +1399,7 @@ module Brrowser
       @pTab.full_refresh
       @pMain.full_refresh
       @pCmd.full_refresh
+      show_visible_image
     end
 
     # Main loop {{{2
