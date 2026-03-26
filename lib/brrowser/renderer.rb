@@ -243,6 +243,40 @@ module Brrowser
           @output << "[image]".fg(236)
           (IMG_RESERVE - 1).times { @output << "" }
         end
+      when "iframe"
+        src = node["src"] || ""
+        src = resolve_url(src) unless src.empty?
+        if src.match?(%r{youtube\.com/embed/|youtube-nocookie\.com/embed/})
+          video_id = src[%r{/embed/([^?&/]+)}, 1]
+          if video_id
+            ensure_blank_line
+            # Add YouTube thumbnail as image
+            thumb_url = "https://img.youtube.com/vi/#{video_id}/hqdefault.jpg"
+            flush_line if @col > 0
+            line_num = @output.length
+            @images << { src: thumb_url, alt: "YouTube video", line: line_num, height: IMG_RESERVE }
+            @output << "[YouTube video]".fg(236)
+            (IMG_RESERVE - 1).times { @output << "" }
+            # Add link to video
+            video_url = "https://www.youtube.com/watch?v=#{video_id}"
+            link_index = @links.length
+            link_line = @output.length
+            @links << { index: link_index, href: video_url, text: "Watch on YouTube", line: link_line }
+            @line << "\u25b6 Watch on YouTube".fg(196).b + "[#{link_index}]".fg(39)
+            @col += 19 + "[#{link_index}]".length
+            flush_line
+            ensure_blank_line
+          end
+        elsif !src.empty?
+          ensure_blank_line
+          link_index = @links.length
+          link_line = @output.length
+          @links << { index: link_index, href: src, text: "Embedded content", line: link_line }
+          @line << "[Embedded: #{src[0..50]}]".fg(245) + "[#{link_index}]".fg(39)
+          @col += 63 + "[#{link_index}]".length
+          flush_line
+          ensure_blank_line
+        end
       when "table"
         render_table(node)
       when "form"
