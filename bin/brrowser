@@ -9,6 +9,8 @@ require 'termpix'
 require 'tmpdir'
 require 'digest'
 require 'fileutils'
+require 'yaml'
+require 'shellwords'
 
 require_relative '../lib/brrowser/tab'
 require_relative '../lib/brrowser/fetcher'
@@ -23,6 +25,29 @@ end
 module Brrowser
   VERSION = "0.1.0"
   HOMEPAGE = "about:blank"
+  CONFIG_DIR  = File.join(Dir.home, ".brrowser")
+  CONFIG_FILE = File.join(CONFIG_DIR, "config.yml")
+
+  DEFAULTS = {
+    "show_images"  => true,
+    "image_mode"   => "auto",  # auto, termpix, ascii, off
+    "homepage"     => "about:blank",
+    "search_engine" => "g",
+    "info_fg"      => 252,
+    "info_bg"      => 236,
+    "tab_fg"       => 252,
+    "tab_bg"       => 234,
+    "tab_active"   => 220,
+    "content_fg"   => 255,
+    "content_bg"   => 0,
+    "cmd_fg"       => 252,
+    "cmd_bg"       => 234,
+    "link_color"   => 81,
+    "link_num"     => 39,
+    "heading_h1"   => 220,
+    "heading_h2"   => 214,
+    "heading_h3"   => 208,
+  }
 
   HELP_HTML = <<~HTML
     <html><body>
@@ -85,6 +110,7 @@ module Brrowser
     <table>
     <tr><th>Key</th><th>Action</th></tr>
     <tr><td>i</td><td>Toggle images</td></tr>
+    <tr><td>P</td><td>Preferences</td></tr>
     <tr><td>?</td><td>This help page</td></tr>
     <tr><td>q</td><td>Quit</td></tr>
     </table>
@@ -110,6 +136,7 @@ module Brrowser
       @search_index   = 0
       @status_msg  = ""
       @running     = true
+      load_config
       @termpix     = Termpix::Display.new
       @img_cache   = {}  # url => local path
       @img_thread  = nil
@@ -224,6 +251,7 @@ module Brrowser
       current_tab.ix = 0
       @pMain.ix = 0
       @current_link = -1
+      @highlighted_line = nil
       @status_msg = ""
       clear_images
       @last_img_count = 0
@@ -440,8 +468,26 @@ module Brrowser
       end
     end
 
+    def image_mode
+      mode = @conf["image_mode"]
+      return :off unless @conf["show_images"]
+      case mode
+      when "termpix" then @termpix.supported? ? :termpix : :off
+      when "ascii"   then :ascii
+      when "off"     then :off
+      else # auto
+        @termpix.supported? ? :termpix : (chafa_available? ? :ascii : :off)
+      end
+    end
+
+    def chafa_available?
+      @chafa_available = system("which chafa > /dev/null 2>&1") if @chafa_available.nil?
+      @chafa_available
+    end
+
     def show_visible_image
-      return unless @termpix.supported?
+      mode = image_mode
+      return if mode == :off
       images = current_tab.images
       return if images.empty?
 
@@ -452,25 +498,39 @@ module Brrowser
       images.each do |img|
         line = img[:line] || 0
         img_bottom = line + reserve - 1
-        # Image visible if its reserved area overlaps viewport
         next unless img_bottom >= viewport_top && line <= viewport_bottom
         local = @img_cache[img[:src]]
         next unless local && File.exist?(local)
 
-        # Calculate screen position (clipped to viewport)
         top_in_view = [line, viewport_top].max
         bot_in_view = [img_bottom, viewport_bottom].min
         screen_y = @pMain.y + (top_in_view - viewport_top)
         visible_h = bot_in_view - top_in_view + 1
-        next if visible_h < 3  # Don't show if barely visible
+        next if visible_h < 3
 
-        @termpix.show(local,
-          x: @pMain.x,
-          y: screen_y,
-          max_width: [@pMain.w / 2, 60].min,
-          max_height: visible_h)
+        if mode == :termpix
+          @termpix.show(local,
+            x: @pMain.x,
+            y: screen_y,
+            max_width: [@pMain.w / 2, 60].min,
+            max_height: visible_h)
+        elsif mode == :ascii
+          show_ascii_image(local, screen_y, visible_h)
+        end
         @showing_image = true
       end
+    end
+
+    def show_ascii_image(path, screen_y, max_h)
+      cols = [@pMain.w / 2, 60].min
+      art = `chafa -s #{cols}x#{max_h} --format=symbols #{Shellwords.escape(path)} 2>/dev/null`
+      return if art.empty?
+      lines = art.split("\n")
+      lines.each_with_index do |line, i|
+        break if i >= max_h
+        print "\e[#{screen_y + i};#{@pMain.x}H#{line}"
+      end
+      $stdout.flush
     end
 
     def clear_images
@@ -554,6 +614,18 @@ module Brrowser
     def jump_to_link(idx)
       link = current_tab.links[idx]
       return unless link && link[:line]
+      lines = current_tab.content.split("\n")
+      # Remove highlight from previous link
+      if @highlighted_line && @highlighted_line < lines.length
+        lines[@highlighted_line] = lines[@highlighted_line]
+          .gsub("\e[7m", "").gsub("\e[27m", "")
+      end
+      # Highlight current link line with reverse
+      if link[:line] < lines.length
+        lines[link[:line]] = "\e[7m#{lines[link[:line]]}\e[27m"
+        @highlighted_line = link[:line]
+      end
+      current_tab.content = lines.join("\n")
       # Scroll so the link is visible near the top
       @pMain.ix = [link[:line] - 3, 0].max
       current_tab.ix = @pMain.ix
@@ -684,6 +756,143 @@ module Brrowser
       refresh_all
     end
 
+    # Config {{{2
+    def load_config
+      @conf = DEFAULTS.dup
+      if File.exist?(CONFIG_FILE)
+        saved = YAML.safe_load(File.read(CONFIG_FILE)) rescue {}
+        @conf.merge!(saved) if saved.is_a?(Hash)
+      end
+    end
+
+    def save_config
+      Dir.mkdir(CONFIG_DIR) unless Dir.exist?(CONFIG_DIR)
+      File.write(CONFIG_FILE, @conf.to_yaml)
+    end
+
+    def apply_colors
+      @pInfo.fg = @conf["info_fg"]; @pInfo.bg = @conf["info_bg"]
+      @pTab.fg  = @conf["tab_fg"];  @pTab.bg  = @conf["tab_bg"]
+      @pMain.fg = @conf["content_fg"]; @pMain.bg = @conf["content_bg"]
+      @pCmd.fg  = @conf["cmd_fg"];  @pCmd.bg  = @conf["cmd_bg"]
+      refresh_all
+    end
+
+    # Preferences {{{2
+    PREF_SETTINGS = [
+      ["Image mode",     "image_mode",   %w[auto termpix ascii off]],
+      ["Show images",    "show_images",  [true, false]],
+      ["Homepage",       "homepage",     :text],
+      ["Search engine",  "search_engine", %w[g ddg w]],
+      ["Info bar fg",    "info_fg",      :color],
+      ["Info bar bg",    "info_bg",      :color],
+      ["Tab bar fg",     "tab_fg",       :color],
+      ["Tab bar bg",     "tab_bg",       :color],
+      ["Active tab",     "tab_active",   :color],
+      ["Content fg",     "content_fg",   :color],
+      ["Content bg",     "content_bg",   :color],
+      ["Status bar fg",  "cmd_fg",       :color],
+      ["Status bar bg",  "cmd_bg",       :color],
+      ["Link color",     "link_color",   :color],
+      ["Link number",    "link_num",     :color],
+      ["Heading h1",     "heading_h1",   :color],
+      ["Heading h2",     "heading_h2",   :color],
+      ["Heading h3",     "heading_h3",   :color],
+    ]
+
+    def show_preferences
+      pw = 44
+      ph = PREF_SETTINGS.length + 4
+      px = (@w - pw) / 2
+      py = (@h - ph) / 2
+      popup = Pane.new(px, py, pw, ph, 252, 234)
+      popup.border = true
+      sel = 0
+
+      build = lambda do
+        lines = [" brrowser Preferences".b, ""]
+        PREF_SETTINGS.each_with_index do |(label, key, type), i|
+          val = @conf[key]
+          disp = case type
+                 when :color
+                   "\u2588\u2588".fg(val) + " #{val}"
+                 else
+                   val.to_s
+                 end
+          prefix = i == sel ? " \u25b6 ".fg(220) : "   "
+          line = "#{prefix}#{label.ljust(16)} \u25c4 #{disp.to_s.ljust(12)} \u25b6"
+          line = line.r if i == sel
+          lines << line
+        end
+        lines << ""
+        lines << " h/l:change  Enter:edit  q:save & close".fg(245)
+        popup.text = lines.join("\n")
+        popup.refresh
+      end
+
+      build.call
+
+      loop do
+        chr = getchr
+        case chr
+        when "ESC", "q", "Q"
+          save_config
+          apply_colors
+          break
+        when "j", "DOWN"
+          sel = (sel + 1) % PREF_SETTINGS.length
+        when "k", "UP"
+          sel = (sel - 1) % PREF_SETTINGS.length
+        when "l", "RIGHT"
+          label, key, type = PREF_SETTINGS[sel]
+          case type
+          when Array
+            idx = type.index(@conf[key]) || 0
+            @conf[key] = type[(idx + 1) % type.length]
+          when :color
+            @conf[key] = (@conf[key] + 1) % 256
+          end
+        when "h", "LEFT"
+          label, key, type = PREF_SETTINGS[sel]
+          case type
+          when Array
+            idx = type.index(@conf[key]) || 0
+            @conf[key] = type[(idx - 1) % type.length]
+          when :color
+            @conf[key] = (@conf[key] - 1) % 256
+          end
+        when "L"  # Shift-L: +10 for colors
+          label, key, type = PREF_SETTINGS[sel]
+          @conf[key] = (@conf[key] + 10) % 256 if type == :color
+        when "H"  # Shift-H: -10 for colors
+          label, key, type = PREF_SETTINGS[sel]
+          @conf[key] = (@conf[key] - 10) % 256 if type == :color
+        when "ENTER"
+          label, key, type = PREF_SETTINGS[sel]
+          if type == :text
+            @pCmd.text = ""
+            @pCmd.refresh
+            @pInput.x = 2; @pInput.w = @w - 1; @pInput.y = @h
+            val = @pInput.ask("#{label}: ", @conf[key].to_s)
+            @conf[key] = val.strip unless val.nil? || val.strip.empty?
+          elsif type == :color
+            @pCmd.text = ""
+            @pCmd.refresh
+            @pInput.x = 2; @pInput.w = @w - 1; @pInput.y = @h
+            val = @pInput.ask("#{label} (0-255): ", @conf[key].to_s)
+            if val && val.strip.match?(/^\d+$/)
+              @conf[key] = val.strip.to_i % 256
+            end
+            refresh_cmd
+          end
+        end
+        build.call
+      end
+
+      # Restore screen
+      refresh_all
+    end
+
     # Main loop {{{2
     NORMAL_KEYMAP = {
       "j"      => :scroll_down,    "k"       => :scroll_up,
@@ -707,6 +916,7 @@ module Brrowser
       "PgDOWN" => :page_down,      "PgUP"    => :page_up,
       " "      => :page_down,
       "i"      => :toggle_images,
+      "P"      => :show_preferences,
       "q"      => :quit_browser,
     }
 
