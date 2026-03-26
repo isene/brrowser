@@ -78,6 +78,7 @@ module Brrowser
     <tr><td>Tab</td><td>Jump to next link</td></tr>
     <tr><td>Shift-Tab</td><td>Jump to previous link</td></tr>
     <tr><td>Enter</td><td>Follow current/numbered link</td></tr>
+    <tr><td>f</td><td>Fill and submit form</td></tr>
     <tr><td>H / Backspace</td><td>Go back</td></tr>
     <tr><td>L</td><td>Go forward</td></tr>
     <tr><td>r</td><td>Reload page</td></tr>
@@ -257,11 +258,14 @@ module Brrowser
         current_tab.content = page[:text]
         current_tab.links   = page[:links]
         current_tab.images  = page[:images]
+        current_tab.forms   = page[:forms]
+        check_autofill
       else
         current_tab.title   = result[:url]
         current_tab.content = result[:body]
         current_tab.links   = []
         current_tab.images  = []
+        current_tab.forms   = []
       end
       current_tab.ix = 0
       @pMain.ix = 0
@@ -1038,6 +1042,113 @@ module Brrowser
       refresh_cmd
     end
 
+    # Form interaction {{{2
+    def check_autofill
+      forms = current_tab.forms || []
+      pw_form = forms.find { |f| f[:has_password] }
+      return unless pw_form
+      host = URI.parse(current_tab.url).host rescue nil
+      return unless host
+      load_passwords
+      if @passwords[host]
+        @status_msg = "Credentials available for #{host}. Press 'e' to fill form."
+        refresh_cmd
+      end
+    end
+
+    def fill_form
+      forms = current_tab.forms || []
+      return if forms.empty?
+
+      # Prefer login forms, fall back to first form
+      form = forms.find { |f| f[:has_password] } || forms.first
+      host = URI.parse(current_tab.url).host rescue nil
+
+      # Try auto-fill from stored passwords
+      load_passwords
+      stored = host ? @passwords[host] : nil
+
+      params = {}
+      has_password_field = false
+
+      form[:fields].each do |field|
+        case field[:type]
+        when "hidden"
+          params[field[:name]] = field[:value] unless field[:name].empty?
+        when "submit"
+          # skip
+        when "password"
+          has_password_field = true
+          prefill = stored ? stored["password"] : ""
+          @pInput.x = 2; @pInput.w = @w - 1; @pInput.y = @h
+          val = @pInput.ask("#{field[:placeholder] || field[:name]}: ", prefill)
+          if val.nil?
+            refresh_cmd; return
+          end
+          params[field[:name]] = val.strip unless field[:name].empty?
+        when "select"
+          opts = (field[:options] || []).map { |o| o[:text] }
+          @pInput.x = 2; @pInput.w = @w - 1; @pInput.y = @h
+          val = @pInput.ask("#{field[:name]} (#{opts.join('/')}): ", field[:value].to_s)
+          if val.nil?
+            refresh_cmd; return
+          end
+          # Match by text or value
+          opt = field[:options]&.find { |o| o[:text].downcase.start_with?(val.strip.downcase) }
+          params[field[:name]] = opt ? opt[:value] : val.strip unless field[:name].empty?
+        else
+          # text, email, etc.
+          prefill = ""
+          if stored && field[:type] =~ /email|text/ && field[:name] =~ /user|email|login|name/i
+            prefill = stored["username"]
+          end
+          @pInput.x = 2; @pInput.w = @w - 1; @pInput.y = @h
+          val = @pInput.ask("#{field[:placeholder] || field[:name]}: ", prefill)
+          if val.nil?
+            refresh_cmd; return
+          end
+          params[field[:name]] = val.strip unless field[:name].empty?
+        end
+      end
+
+      # Submit
+      action = form[:action]
+      action = current_tab.url if action.nil? || action.empty?
+      method = form[:method] == "post" ? :post : :get
+
+      @status_msg = "Submitting form..."
+      refresh_cmd
+
+      if method == :post
+        result = @fetcher.fetch(action, method: :post, params: params)
+      else
+        query = URI.encode_www_form(params)
+        url = action.include?("?") ? "#{action}&#{query}" : "#{action}?#{query}"
+        result = @fetcher.fetch(url)
+      end
+
+      # Offer to save password if this was a new login
+      if has_password_field && host && !stored
+        username = params.find { |k, _| k =~ /user|email|login|name/i }&.last
+        password = params.find { |k, _| k =~ /pass/i }&.last
+        if username && password
+          @pInput.x = 2; @pInput.w = @w - 1; @pInput.y = @h
+          save = @pInput.ask("Save password for #{host}? (y/n): ", "y")
+          if save&.strip&.downcase == "y"
+            @passwords[host] = { "username" => username, "password" => password }
+            save_passwords
+            @status_msg = "Password saved for #{host}"
+            refresh_cmd
+          end
+        end
+      end
+
+      current_tab.navigate(action)
+      current_tab.url = result[:url]
+      render_page(result)
+      refresh_all
+    end
+
     # Config {{{2
     def load_config
       @conf = DEFAULTS.dup
@@ -1201,6 +1312,7 @@ module Brrowser
       "C-D"    => :half_page_down, "C-U"     => :half_page_up,
       "PgDOWN" => :page_down,      "PgUP"    => :page_up,
       " "      => :page_down,
+      "f"      => :fill_form,
       "b"      => :add_bookmark,
       "B"      => :show_bookmarks,
       "m"      => :set_quickmark,

@@ -14,7 +14,7 @@ module Brrowser
       @cookies = load_cookies
     end
 
-    def fetch(url)
+    def fetch(url, method: :get, params: nil)
       url = "https://#{url}" unless url.match?(%r{^https?://})
       uri = URI.parse(url)
       redirects = 0
@@ -31,7 +31,12 @@ module Brrowser
         end
 
         path = uri.request_uri.empty? ? "/" : uri.request_uri
-        req = Net::HTTP::Get.new(path)
+        if method == :post && params
+          req = Net::HTTP::Post.new(path)
+          req.set_form_data(params)
+        else
+          req = Net::HTTP::Get.new(path)
+        end
         req["User-Agent"]      = USER_AGENT
         req["Accept"]          = "text/html,application/xhtml+xml,*/*"
         req["Accept-Language"]  = "en-US,en;q=0.9"

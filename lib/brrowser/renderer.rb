@@ -13,24 +13,27 @@ module Brrowser
 
     IMG_RESERVE = 10  # Blank lines reserved for each image
 
-    attr_reader :links, :images
+    attr_reader :links, :images, :forms
 
     def initialize(width)
       @width    = width
       @links    = []
       @images   = []
+      @forms    = []
       @output   = []
       @line     = ""
       @col      = 0
       @indent   = 0
       @pre      = false
       @ol_count = []
+      @current_form = nil
     end
 
     def render(html, base_url = nil)
       @base_url = base_url
       @links    = []
       @images   = []
+      @forms    = []
       @output   = []
       @line     = ""
       @col      = 0
@@ -42,7 +45,7 @@ module Brrowser
       walk(body)
       flush_line
 
-      { text: @output.join("\n"), links: @links, images: @images, title: title }
+      { text: @output.join("\n"), links: @links, images: @images, forms: @forms, title: title }
     end
 
     private
@@ -281,9 +284,18 @@ module Brrowser
         render_table(node)
       when "form"
         ensure_blank_line
+        action = node["action"] || ""
+        action = resolve_url(action) unless action.empty?
+        method = (node["method"] || "get").downcase
+        @current_form = { action: action, method: method, fields: [], line: @output.length }
         @line << "[Form]".fg(208).b
         flush_line
         walk(node)
+        # Check if form has password field
+        has_pw = @current_form[:fields].any? { |f| f[:type] == "password" }
+        @current_form[:has_password] = has_pw
+        @forms << @current_form
+        @current_form = nil
         ensure_blank_line
       when "input"
         type = node["type"] || "text"
@@ -294,22 +306,31 @@ module Brrowser
           label = value.empty? ? "Submit" : value
           @line << " [#{label}] ".fg(0).bg(252)
           @col += label.length + 4
+          @current_form[:fields] << { type: "submit", name: name, value: value } if @current_form
         when "hidden"
-          # skip
+          @current_form[:fields] << { type: "hidden", name: name, value: value } if @current_form
         else
           placeholder = node["placeholder"] || name
-          field = "[#{placeholder}: ________]".fg(252)
+          display_type = type == "password" ? "\u2022" : ""
+          label = "#{placeholder}#{display_type}"
+          field = "[#{label}: ________]".fg(252)
           @line << field
-          @col += placeholder.length + 14
+          @col += label.length + 14
+          @current_form[:fields] << { type: type, name: name, value: value, placeholder: placeholder } if @current_form
         end
       when "select"
         name = node["name"] || "select"
         @line << "[#{name} v]".fg(252)
         @col += name.length + 4
+        options = node.css("option").map { |o| { value: o["value"] || o.text, text: o.text.strip } }
+        selected = node.at_css("option[selected]")
+        val = selected ? (selected["value"] || selected.text) : options.first&.dig(:value)
+        @current_form[:fields] << { type: "select", name: name, value: val.to_s, options: options } if @current_form
       when "textarea"
         name = node["name"] || "text"
         @line << "[#{name}: ________]".fg(252)
         @col += name.length + 14
+        @current_form[:fields] << { type: "textarea", name: name, value: node.text } if @current_form
       when "label"
         walk(node)
       when "span"
