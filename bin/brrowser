@@ -49,7 +49,9 @@ module Brrowser
     <tr><td>o</td><td>Open URL</td></tr>
     <tr><td>O</td><td>Open URL (pre-filled with current)</td></tr>
     <tr><td>t</td><td>Open URL in new tab</td></tr>
-    <tr><td>Enter</td><td>Follow link by number</td></tr>
+    <tr><td>Tab</td><td>Jump to next link</td></tr>
+    <tr><td>Shift-Tab</td><td>Jump to previous link</td></tr>
+    <tr><td>Enter</td><td>Follow current/numbered link</td></tr>
     <tr><td>H / Backspace</td><td>Go back</td></tr>
     <tr><td>L</td><td>Go forward</td></tr>
     <tr><td>r</td><td>Reload page</td></tr>
@@ -221,6 +223,7 @@ module Brrowser
       end
       current_tab.ix = 0
       @pMain.ix = 0
+      @current_link = -1
       @status_msg = ""
       clear_images
       @last_img_count = 0
@@ -532,8 +535,43 @@ module Brrowser
     end
 
     # Link following {{{2
+    @current_link = -1
+
+    def next_link
+      links = current_tab.links
+      return if links.empty?
+      @current_link = (@current_link + 1) % links.length
+      jump_to_link(@current_link)
+    end
+
+    def prev_link
+      links = current_tab.links
+      return if links.empty?
+      @current_link = (@current_link - 1) % links.length
+      jump_to_link(@current_link)
+    end
+
+    def jump_to_link(idx)
+      link = current_tab.links[idx]
+      return unless link && link[:line]
+      # Scroll so the link is visible near the top
+      @pMain.ix = [link[:line] - 3, 0].max
+      current_tab.ix = @pMain.ix
+      @status_msg = "[#{link[:index]}] #{link[:text][0..60]} -> #{link[:href][0..60]}"
+      refresh_main
+      refresh_cmd
+    end
+
     def follow_link_prompt
       return if current_tab.links.empty?
+      # If we've Tab-navigated to a link, follow it directly
+      if @current_link >= 0 && @current_link < current_tab.links.length
+        link = current_tab.links[@current_link]
+        if link
+          navigate(link[:href])
+          return
+        end
+      end
       @pInput.x = 2
       @pInput.w = @w - 1
       @pInput.y = @h
@@ -663,6 +701,7 @@ module Brrowser
       "n"      => :search_next,    "N"       => :search_prev,
       "?"      => :show_help,
       ":"      => :command_mode,
+      "TAB"    => :next_link,       "S-TAB"   => :prev_link,
       "ENTER"  => :follow_link_prompt,
       "C-D"    => :half_page_down, "C-U"     => :half_page_up,
       "PgDOWN" => :page_down,      "PgUP"    => :page_up,

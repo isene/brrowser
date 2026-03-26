@@ -199,7 +199,8 @@ module Brrowser
         if href && !href.start_with?("#", "javascript:")
           href = resolve_url(href)
           link_index = @links.length
-          @links << { index: link_index, href: href, text: text.strip }
+          link_line = @output.length
+          @links << { index: link_index, href: href, text: text.strip, line: link_line }
           if has_img
             # Walk children so <img> elements get processed
             @in_link = link_index
@@ -239,7 +240,8 @@ module Brrowser
           flush_line if @col > 0
           line_num = @output.length
           @images << { src: src, alt: alt, line: line_num, height: IMG_RESERVE }
-          IMG_RESERVE.times { @output << "" }
+          @output << "[image]".fg(236)
+          (IMG_RESERVE - 1).times { @output << "" }
         end
       when "table"
         render_table(node)
