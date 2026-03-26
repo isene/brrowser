@@ -466,7 +466,6 @@ module Brrowser
           max_width: [@pMain.w / 2, 60].min,
           max_height: visible_h)
         @showing_image = true
-        return  # Only show first visible image
       end
     end
 
