@@ -453,6 +453,15 @@ module Brrowser
       show_visible_image
     end
 
+    def redraw_screen
+      clear_images
+      @pInfo.full_refresh
+      @pTab.full_refresh
+      @pMain.full_refresh
+      @pCmd.full_refresh
+      show_visible_image
+    end
+
     # Images {{{2
     # Images display in the reserved blank lines from the renderer.
     # Only one image shown at a time to avoid kitty protocol conflicts.
@@ -1421,6 +1430,7 @@ module Brrowser
       ":"      => :command_mode,
       "TAB"    => :next_link,       "S-TAB"   => :prev_link,
       "ENTER"  => :follow_link_prompt,
+      "C-L"    => :redraw_screen,
       "C-D"    => :half_page_down, "C-U"     => :half_page_up,
       "PgDOWN" => :page_down,      "PgUP"    => :page_up,
       " "      => :page_down,
