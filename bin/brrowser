@@ -1,0 +1,672 @@
+#!/usr/bin/env ruby
+# encoding: utf-8
+# brrowser - Terminal web browser with vim-style keybindings
+# License: Unlicense
+
+require 'rcurses'
+require 'io/wait'
+
+require_relative '../lib/brrowser/tab'
+require_relative '../lib/brrowser/fetcher'
+require_relative '../lib/brrowser/renderer'
+
+class Object
+  include Rcurses
+  include Rcurses::Input
+end
+
+# brrowser {{{1
+module Brrowser
+  VERSION = "0.1.0"
+  HOMEPAGE = "about:blank"
+
+  HELP_HTML = <<~HTML
+    <html><body>
+    <h1>brrowser help</h1>
+    <h2>Navigation</h2>
+    <table>
+    <tr><th>Key</th><th>Action</th></tr>
+    <tr><td>j / Down</td><td>Scroll down</td></tr>
+    <tr><td>k / Up</td><td>Scroll up</td></tr>
+    <tr><td>h / Left</td><td>Scroll left (not yet implemented)</td></tr>
+    <tr><td>l / Right</td><td>Scroll right (not yet implemented)</td></tr>
+    <tr><td>gg</td><td>Go to top</td></tr>
+    <tr><td>G</td><td>Go to bottom</td></tr>
+    <tr><td>Ctrl-d</td><td>Half page down</td></tr>
+    <tr><td>Ctrl-u</td><td>Half page up</td></tr>
+    <tr><td>PgDn / Space</td><td>Page down</td></tr>
+    <tr><td>PgUp</td><td>Page up</td></tr>
+    </table>
+    <h2>Browsing</h2>
+    <table>
+    <tr><th>Key</th><th>Action</th></tr>
+    <tr><td>o</td><td>Open URL</td></tr>
+    <tr><td>O</td><td>Open URL (pre-filled with current)</td></tr>
+    <tr><td>Enter</td><td>Follow link by number</td></tr>
+    <tr><td>f</td><td>Hint mode (follow link)</td></tr>
+    <tr><td>F</td><td>Hint mode (open in new tab)</td></tr>
+    <tr><td>H</td><td>Go back</td></tr>
+    <tr><td>L</td><td>Go forward</td></tr>
+    <tr><td>r</td><td>Reload page</td></tr>
+    </table>
+    <h2>Tabs</h2>
+    <table>
+    <tr><th>Key</th><th>Action</th></tr>
+    <tr><td>J</td><td>Next tab</td></tr>
+    <tr><td>K</td><td>Previous tab</td></tr>
+    <tr><td>d</td><td>Close tab</td></tr>
+    <tr><td>u</td><td>Undo close tab</td></tr>
+    </table>
+    <h2>Search</h2>
+    <table>
+    <tr><th>Key</th><th>Action</th></tr>
+    <tr><td>/</td><td>Search page</td></tr>
+    <tr><td>n</td><td>Next search match</td></tr>
+    <tr><td>N</td><td>Previous search match</td></tr>
+    </table>
+    <h2>Commands (: mode)</h2>
+    <table>
+    <tr><th>Command</th><th>Action</th></tr>
+    <tr><td>:open URL</td><td>Navigate to URL</td></tr>
+    <tr><td>:tabopen URL</td><td>Open URL in new tab</td></tr>
+    <tr><td>:close / :q</td><td>Close tab</td></tr>
+    <tr><td>:quit / :qa</td><td>Quit brrowser</td></tr>
+    <tr><td>:back</td><td>Go back</td></tr>
+    <tr><td>:forward</td><td>Go forward</td></tr>
+    </table>
+    <h2>Other</h2>
+    <table>
+    <tr><th>Key</th><th>Action</th></tr>
+    <tr><td>?</td><td>This help page</td></tr>
+    <tr><td>q</td><td>Quit</td></tr>
+    </table>
+    </body></html>
+  HTML
+
+  SEARCH_ENGINES = {
+    "g"   => "https://www.google.com/search?q=",
+    "ddg" => "https://duckduckgo.com/?q=",
+    "w"   => "https://en.wikipedia.org/wiki/Special:Search?search=",
+  }
+
+  class Browser # {{{1
+    def initialize(url = nil)
+      @fetcher     = Fetcher.new
+      @tabs        = []
+      @current_tab = 0
+      @closed_tabs = []
+      @mode        = :normal
+      @g_pressed   = false
+      @search_term = nil
+      @search_matches = []
+      @search_index   = 0
+      @status_msg  = ""
+      @running     = true
+
+      setup_panes
+      new_tab(url || HOMEPAGE)
+      main_loop
+    end
+
+    # Pane layout {{{2
+    def setup_panes
+      @h, @w = IO.console.winsize
+
+      @pInfo = Pane.new(1, 1, @w, 1, 252, 236)
+      @pTab  = Pane.new(1, 2, @w, 1, 252, 234)
+      @pMain = Pane.new(1, 3, @w, @h - 3, 255, 0)
+      @pCmd  = Pane.new(1, @h, @w, 1, 252, 234)
+
+      @pMain.border = false
+      @pMain.scroll = true
+
+      @pInput = Pane.new(2, @h, @w - 1, 1, 255, 234)
+      @pInput.record = true
+
+      Signal.trap("WINCH") { @winch = true }
+    end
+
+    def resize
+      @h, @w = IO.console.winsize
+      @pInfo.w = @w; @pInfo.h = 1; @pInfo.x = 1; @pInfo.y = 1
+      @pTab.w  = @w; @pTab.h  = 1; @pTab.x  = 1; @pTab.y  = 2
+      @pMain.w = @w; @pMain.h = @h - 3; @pMain.x = 1; @pMain.y = 3
+      @pCmd.w  = @w; @pCmd.h  = 1; @pCmd.x  = 1; @pCmd.y  = @h
+      @pInput.w = @w - 1; @pInput.x = 2; @pInput.y = @h
+
+      re_render
+      refresh_all
+    end
+
+    # Tab management {{{2
+    def current_tab
+      @tabs[@current_tab]
+    end
+
+    def new_tab(url)
+      tab = Tab.new
+      @tabs.insert(@current_tab + (@tabs.empty? ? 0 : 1), tab)
+      @current_tab = @tabs.index(tab)
+      navigate(url)
+    end
+
+    def close_tab
+      return if @tabs.length <= 1
+      @closed_tabs.push(@tabs[@current_tab])
+      @tabs.delete_at(@current_tab)
+      @current_tab = [@current_tab, @tabs.length - 1].min
+      @pMain.ix = current_tab.ix
+      refresh_all
+    end
+
+    def undo_close_tab
+      return if @closed_tabs.empty?
+      tab = @closed_tabs.pop
+      @tabs.insert(@current_tab + 1, tab)
+      @current_tab += 1
+      @pMain.ix = current_tab.ix
+      refresh_all
+    end
+
+    def next_tab
+      @current_tab = (@current_tab + 1) % @tabs.length
+      @pMain.ix = current_tab.ix
+      refresh_all
+    end
+
+    def prev_tab
+      @current_tab = (@current_tab - 1) % @tabs.length
+      @pMain.ix = current_tab.ix
+      refresh_all
+    end
+
+    # Navigation {{{2
+    def navigate(url)
+      url = resolve_search(url)
+      @status_msg = "Loading #{url}..."
+      refresh_cmd
+
+      current_tab.navigate(url)
+      result = @fetcher.fetch(url)
+      current_tab.url = result[:url]
+
+      render_page(result)
+      refresh_all
+    end
+
+    def render_page(result)
+      if result[:content_type].include?("text/html") || result[:body].match?(/<html/i)
+        renderer = Renderer.new(@w - 2)
+        page = renderer.render(result[:body], result[:url])
+        current_tab.title   = page[:title]
+        current_tab.content = page[:text]
+        current_tab.links   = page[:links]
+        current_tab.images  = page[:images]
+      else
+        current_tab.title   = result[:url]
+        current_tab.content = result[:body]
+        current_tab.links   = []
+        current_tab.images  = []
+      end
+      current_tab.ix = 0
+      @pMain.ix = 0
+      @status_msg = ""
+    end
+
+    def re_render
+      return unless current_tab.url && current_tab.url != HOMEPAGE
+      result = @fetcher.fetch(current_tab.url)
+      render_page(result)
+    end
+
+    def go_back
+      url = current_tab.go_back
+      if url
+        result = @fetcher.fetch(url)
+        render_page(result)
+        @pMain.ix = current_tab.ix
+        refresh_all
+      else
+        @status_msg = "No back history"
+        refresh_cmd
+      end
+    end
+
+    def go_forward
+      url = current_tab.go_forward
+      if url
+        result = @fetcher.fetch(url)
+        render_page(result)
+        @pMain.ix = current_tab.ix
+        refresh_all
+      else
+        @status_msg = "No forward history"
+        refresh_cmd
+      end
+    end
+
+    def reload
+      return unless current_tab.url
+      navigate_no_history(current_tab.url)
+    end
+
+    def navigate_no_history(url)
+      @status_msg = "Loading #{url}..."
+      refresh_cmd
+      result = @fetcher.fetch(url)
+      current_tab.url = result[:url]
+      render_page(result)
+      refresh_all
+    end
+
+    def resolve_search(input)
+      return input if input.match?(%r{^https?://}) || input.match?(%r{^file://})
+      return input if input.include?(".") && !input.include?(" ")
+
+      parts = input.split(" ", 2)
+      if parts.length == 2 && SEARCH_ENGINES[parts[0]]
+        SEARCH_ENGINES[parts[0]] + URI.encode_www_form_component(parts[1])
+      elsif parts.length == 1 && !input.include?(" ")
+        "https://#{input}"
+      else
+        SEARCH_ENGINES["g"] + URI.encode_www_form_component(input)
+      end
+    end
+
+    # Rendering {{{2
+    def refresh_all
+      refresh_info
+      refresh_tabs
+      refresh_main
+      refresh_cmd
+    end
+
+    def refresh_info
+      tab = current_tab
+      mode_str = @mode == :normal ? "" : " [#{@mode.upcase}]"
+      back_indicator = tab.can_go_back? ? "\u25c0 " : ""
+      fwd_indicator  = tab.can_go_forward? ? " \u25b6" : ""
+      title = tab.title.to_s
+      url   = tab.url.to_s
+      info = " #{back_indicator}#{url}#{fwd_indicator}  #{title}#{mode_str}"
+      info = info[0...@w] if info.length > @w
+      @pInfo.text = info
+      @pInfo.refresh
+    end
+
+    def refresh_tabs
+      parts = @tabs.each_with_index.map do |tab, i|
+        label = tab.title.to_s.empty? ? "New Tab" : tab.title.to_s
+        label = label[0..20] + "..." if label.length > 23
+        if i == @current_tab
+          " #{label} ".fg(220).b
+        else
+          " #{label} ".fg(245)
+        end
+      end
+      @pTab.text = parts.join("\u2502".fg(240))
+      @pTab.refresh
+    end
+
+    def refresh_main
+      @pMain.text = current_tab.content.to_s
+      @pMain.refresh
+    end
+
+    def refresh_cmd
+      if @status_msg.empty?
+        link_count = current_tab.links.length
+        info = " #{link_count} links | ? help | : command"
+        @pCmd.text = info.fg(245)
+      else
+        @pCmd.text = " " + @status_msg.fg(214)
+      end
+      @pCmd.refresh
+    end
+
+    # Scrolling {{{2
+    def scroll_down
+      @pMain.linedown
+      current_tab.ix = @pMain.ix
+    end
+
+    def scroll_up
+      @pMain.lineup
+      current_tab.ix = @pMain.ix
+    end
+
+    def page_down
+      @pMain.pagedown
+      current_tab.ix = @pMain.ix
+    end
+
+    def page_up
+      @pMain.pageup
+      current_tab.ix = @pMain.ix
+    end
+
+    def half_page_down
+      half = (@h - 3) / 2
+      half.times { @pMain.linedown }
+      current_tab.ix = @pMain.ix
+    end
+
+    def half_page_up
+      half = (@h - 3) / 2
+      half.times { @pMain.lineup }
+      current_tab.ix = @pMain.ix
+    end
+
+    def go_top
+      @pMain.ix = 0
+      current_tab.ix = 0
+      refresh_main
+    end
+
+    def go_bottom
+      @pMain.bottom
+      current_tab.ix = @pMain.ix
+    end
+
+    # Search {{{2
+    def search_page
+      @pCmd.text = " /".fg(81)
+      @pCmd.refresh
+      @pInput.x = 3
+      @pInput.w = @w - 2
+      @pInput.y = @h
+      term = @pInput.editline("".fg(81))
+      return if term.nil? || term.strip.empty?
+      @search_term = term.strip
+      find_matches
+      search_next
+      refresh_cmd
+    end
+
+    def find_matches
+      @search_matches = []
+      return unless @search_term
+      lines = current_tab.content.to_s.split("\n")
+      lines.each_with_index do |line, i|
+        clean = line.gsub(/\e\[[0-9;]*m/, "")
+        if clean.downcase.include?(@search_term.downcase)
+          @search_matches << i
+        end
+      end
+      @search_index = 0
+    end
+
+    def search_next
+      return unless @search_matches.any?
+      @search_index = (@search_index + 1) % @search_matches.length if @pMain.ix >= @search_matches[@search_index]
+      @pMain.ix = @search_matches[@search_index]
+      current_tab.ix = @pMain.ix
+      @status_msg = "Match #{@search_index + 1}/#{@search_matches.length}"
+      refresh_main
+      refresh_cmd
+    end
+
+    def search_prev
+      return unless @search_matches.any?
+      @search_index = (@search_index - 1) % @search_matches.length
+      @pMain.ix = @search_matches[@search_index]
+      current_tab.ix = @pMain.ix
+      @status_msg = "Match #{@search_index + 1}/#{@search_matches.length}"
+      refresh_main
+      refresh_cmd
+    end
+
+    # Link following {{{2
+    def follow_link_prompt
+      return if current_tab.links.empty?
+      @pCmd.text = " Link #: ".fg(81)
+      @pCmd.refresh
+      @pInput.x = 10
+      @pInput.w = @w - 9
+      @pInput.y = @h
+      num = @pInput.editline("")
+      return if num.nil? || num.strip.empty?
+      idx = num.strip.to_i
+      link = current_tab.links.find { |l| l[:index] == idx }
+      if link
+        navigate(link[:href])
+      else
+        @status_msg = "No link ##{idx}"
+        refresh_cmd
+      end
+    end
+
+    def hint_mode(new_tab: false)
+      links = current_tab.links
+      return if links.empty?
+
+      hints = generate_hints(links.length)
+      link_hints = links.zip(hints).map { |l, h| { link: l, hint: h } }
+
+      hint_display = link_hints.map { |lh| "#{lh[:hint].fg(220).b} #{lh[:link][:text]} ".fg(81) }
+      @pCmd.text = " Hints: type letters to follow (ESC cancel)"
+      @pCmd.refresh
+
+      # Show hints overlay in status
+      typed = ""
+      loop do
+        matches = link_hints.select { |lh| lh[:hint].start_with?(typed) }
+        if matches.length == 1 && matches[0][:hint] == typed
+          link = matches[0][:link]
+          if new_tab
+            new_tab_with(link[:href])
+          else
+            navigate(link[:href])
+          end
+          return
+        elsif matches.empty?
+          @status_msg = "No match"
+          refresh_cmd
+          return
+        end
+
+        display = matches[0..9].map { |m| "#{m[:hint].fg(220).b}:#{m[:link][:text][0..15]}".fg(81) }.join(" ")
+        @pCmd.text = " [#{typed}] #{display}"
+        @pCmd.refresh
+
+        chr = getchr
+        case chr
+        when "ESC"
+          refresh_cmd
+          return
+        when "BACK"
+          typed = typed[0..-2]
+        else
+          typed << chr if chr && chr.length == 1 && chr.match?(/[a-z]/)
+        end
+      end
+    end
+
+    def generate_hints(count)
+      hints = []
+      if count <= 26
+        count.times { |i| hints << (97 + i).chr }
+      else
+        "abcdefghijklmnopqrstuvwxyz".chars.each do |a|
+          "abcdefghijklmnopqrstuvwxyz".chars.each do |b|
+            hints << "#{a}#{b}"
+            return hints if hints.length >= count
+          end
+        end
+      end
+      hints
+    end
+
+    def new_tab_with(url)
+      tab = Tab.new
+      @tabs.insert(@current_tab + 1, tab)
+      @current_tab += 1
+      navigate(url)
+    end
+
+    # Open URL {{{2
+    def open_url(prefill = "")
+      @pCmd.text = " :open ".fg(81)
+      @pCmd.refresh
+      @pInput.x = 8
+      @pInput.w = @w - 7
+      @pInput.y = @h
+      url = @pInput.editline(prefill)
+      return if url.nil? || url.strip.empty?
+      navigate(url.strip)
+    end
+
+    # Command mode {{{2
+    def command_mode
+      @pCmd.text = " :".fg(81)
+      @pCmd.refresh
+      @pInput.x = 3
+      @pInput.w = @w - 2
+      @pInput.y = @h
+      cmd = @pInput.editline("")
+      return if cmd.nil? || cmd.strip.empty?
+      execute_command(cmd.strip)
+    end
+
+    def execute_command(cmd)
+      parts = cmd.split(" ", 2)
+      command = parts[0].downcase
+      args = parts[1]
+
+      case command
+      when "open", "o"
+        navigate(args) if args
+      when "tabopen", "to"
+        new_tab_with(args) if args
+      when "back"
+        go_back
+      when "forward"
+        go_forward
+      when "close", "q"
+        if @tabs.length > 1
+          close_tab
+        else
+          @running = false
+        end
+      when "quit", "qa"
+        @running = false
+      when "reload"
+        reload
+      when "help"
+        show_help
+      else
+        @status_msg = "Unknown command: #{command}"
+        refresh_cmd
+      end
+    end
+
+    # Help {{{2
+    def show_help
+      tab = Tab.new
+      @tabs.insert(@current_tab + 1, tab)
+      @current_tab += 1
+      current_tab.url = "about:help"
+      renderer = Renderer.new(@w - 2)
+      page = renderer.render(HELP_HTML)
+      current_tab.title   = "Help"
+      current_tab.content = page[:text]
+      current_tab.links   = page[:links]
+      current_tab.images  = []
+      current_tab.ix = 0
+      @pMain.ix = 0
+      refresh_all
+    end
+
+    # Main loop {{{2
+    NORMAL_KEYMAP = {
+      "j"      => :scroll_down,    "k"       => :scroll_up,
+      "DOWN"   => :scroll_down,    "UP"      => :scroll_up,
+      "G"      => :go_bottom,
+      "d"      => :close_tab,      "u"       => :undo_close_tab,
+      "f"      => :hint_mode,
+      "o"      => :open_url,
+      "H"      => :go_back,        "L"       => :go_forward,
+      "r"      => :reload,
+      "J"      => :next_tab,       "K"       => :prev_tab,
+      "/"      => :search_page,
+      "n"      => :search_next,    "N"       => :search_prev,
+      "?"      => :show_help,
+      ":"      => :command_mode,
+      "ENTER"  => :follow_link_prompt,
+      "C-D"    => :half_page_down, "C-U"     => :half_page_up,
+      "PgDOWN" => :page_down,      "PgUP"    => :page_up,
+      " "      => :page_down,
+      "q"      => :quit_browser,
+    }
+
+    def main_loop
+      Rcurses.init!
+      @h, @w = IO.console.winsize
+      setup_panes
+
+      # Load initial page
+      if @tabs.any? && current_tab.url != HOMEPAGE
+        result = @fetcher.fetch(current_tab.url)
+        current_tab.url = result[:url]
+        render_page(result)
+      end
+
+      refresh_all
+      $stdin.getc while $stdin.wait_readable(0)
+
+      while @running
+        if @winch
+          @winch = false
+          resize
+        end
+
+        chr = getchr(1)
+        next unless chr
+
+        if @g_pressed
+          @g_pressed = false
+          if chr == "g"
+            go_top
+          end
+          next
+        end
+
+        if chr == "g"
+          @g_pressed = true
+          next
+        end
+
+        if chr == "F"
+          hint_mode(new_tab: true)
+          next
+        end
+
+        if chr == "O"
+          open_url(current_tab.url.to_s)
+          next
+        end
+
+        handler = NORMAL_KEYMAP[chr]
+        if handler
+          m = method(handler)
+          m.arity == 0 ? m.call : m.call
+        end
+      end
+    rescue => e
+      Rcurses.cleanup!
+      puts "brrowser error: #{e.message}"
+      puts e.backtrace.first(5).join("\n")
+      exit 1
+    ensure
+      Rcurses.cleanup!
+    end
+
+    def quit_browser
+      @running = false
+    end
+  end # }}}1
+end
+
+# Entry point
+url = ARGV[0]
+Brrowser::Browser.new(url)
