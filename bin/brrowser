@@ -113,6 +113,7 @@ module Brrowser
     <table>
     <tr><th>Key</th><th>Action</th></tr>
     <tr><td>b</td><td>Bookmark current page</td></tr>
+    <tr><td>B</td><td>Show bookmarks</td></tr>
     <tr><td>i</td><td>Toggle images</td></tr>
     <tr><td>P</td><td>Preferences</td></tr>
     <tr><td>?</td><td>This help page</td></tr>
@@ -164,6 +165,9 @@ module Brrowser
 
       @pInput = Pane.new(2, @h, @w - 1, 1, 255, 234)
       @pInput.record = true
+
+      @pUrlInput = Pane.new(2, @h, @w - 1, 1, 255, 234)
+      @pUrlInput.record = true
 
       Signal.trap("WINCH") { @winch = true }
     end
@@ -679,10 +683,10 @@ module Brrowser
 
     # Open URL {{{2
     def open_url(prefill = "")
-      @pInput.x = 2
-      @pInput.w = @w - 1
-      @pInput.y = @h
-      url = @pInput.ask(":open ", prefill)
+      @pUrlInput.x = 2
+      @pUrlInput.w = @w - 1
+      @pUrlInput.y = @h
+      url = @pUrlInput.ask(":open ", prefill)
       if url.nil? || url.strip.empty?
         refresh_cmd
         return
@@ -691,10 +695,10 @@ module Brrowser
     end
 
     def tabopen_url
-      @pInput.x = 2
-      @pInput.w = @w - 1
-      @pInput.y = @h
-      url = @pInput.ask(":tabopen ", "")
+      @pUrlInput.x = 2
+      @pUrlInput.w = @w - 1
+      @pUrlInput.y = @h
+      url = @pUrlInput.ask(":tabopen ", "")
       if url.nil? || url.strip.empty?
         refresh_cmd
         return
@@ -1034,6 +1038,7 @@ module Brrowser
       "PgDOWN" => :page_down,      "PgUP"    => :page_up,
       " "      => :page_down,
       "b"      => :add_bookmark,
+      "B"      => :show_bookmarks,
       "i"      => :toggle_images,
       "P"      => :show_preferences,
       "q"      => :quit_browser,
