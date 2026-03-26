@@ -254,7 +254,9 @@ module Brrowser
     end
 
     def render_page(result)
-      if result[:content_type].include?("text/html") || result[:body].match?(/<html/i)
+      body = result[:body].to_s.dup.force_encoding("UTF-8").scrub("")
+      result[:body] = body
+      if result[:content_type].to_s.include?("text/html") || body.match?(/<html/i)
         renderer = Renderer.new(@w - 2)
         page = renderer.render(result[:body], result[:url])
         current_tab.title   = page[:title]
