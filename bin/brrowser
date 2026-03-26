@@ -11,6 +11,7 @@ require 'digest'
 require 'fileutils'
 require 'yaml'
 require 'shellwords'
+require 'set'
 
 require_relative '../lib/brrowser/tab'
 require_relative '../lib/brrowser/fetcher'
@@ -108,13 +109,18 @@ module Brrowser
     <tr><td>:bookmark / :bm</td><td>Bookmark (or open by name)</td></tr>
     <tr><td>:bookmarks / :bms</td><td>List bookmarks</td></tr>
     <tr><td>:download / :dl</td><td>Download file</td></tr>
+    <tr><td>:adblock</td><td>Update ad blocklist</td></tr>
+    <tr><td>:password / :pw</td><td>Save password for site</td></tr>
     </table>
     <h2>Other</h2>
     <table>
     <tr><th>Key</th><th>Action</th></tr>
     <tr><td>b</td><td>Bookmark current page</td></tr>
     <tr><td>B</td><td>Show bookmarks</td></tr>
+    <tr><td>m + 0-9</td><td>Set quickmark</td></tr>
+    <tr><td>' + 0-9</td><td>Go to quickmark</td></tr>
     <tr><td>i</td><td>Toggle images</td></tr>
+    <tr><td>p</td><td>Show stored password for site</td></tr>
     <tr><td>P</td><td>Preferences</td></tr>
     <tr><td>?</td><td>This help page</td></tr>
     <tr><td>q</td><td>Quit</td></tr>
@@ -142,6 +148,7 @@ module Brrowser
       @status_msg  = ""
       @running     = true
       load_config
+      load_adblock
       @termpix     = Termpix::Display.new
       @img_cache   = {}  # url => local path
       @img_thread  = nil
@@ -451,6 +458,7 @@ module Brrowser
           src = img[:src]
           src = "https:#{src}" if src.start_with?("//")
           next unless src.match?(%r{^https?://})
+          next if blocked?(src)
           begin
             uri = URI.parse(src)
             ext = File.extname(uri.path)[0..5]
@@ -755,6 +763,10 @@ module Brrowser
         show_bookmarks
       when "download", "dl"
         download_file(args) if args
+      when "adblock"
+        update_adblock
+      when "password", "pw"
+        save_password
       else
         @status_msg = "Unknown command: #{command}"
         refresh_cmd
@@ -870,6 +882,158 @@ module Brrowser
         @status_msg = "Saved: #{path} (#{result[:body].length} bytes)"
       else
         @status_msg = "Download failed: #{result[:status]}"
+      end
+      refresh_cmd
+    end
+
+    # Quickmarks {{{2
+    QUICKMARKS_FILE = File.join(CONFIG_DIR, "quickmarks.yml")
+
+    def load_quickmarks
+      @quickmarks = if File.exist?(QUICKMARKS_FILE)
+        YAML.safe_load(File.read(QUICKMARKS_FILE)) rescue {}
+      else
+        {}
+      end
+      @quickmarks = {} unless @quickmarks.is_a?(Hash)
+    end
+
+    def save_quickmarks
+      Dir.mkdir(CONFIG_DIR) unless Dir.exist?(CONFIG_DIR)
+      File.write(QUICKMARKS_FILE, @quickmarks.to_yaml)
+    end
+
+    def set_quickmark
+      @status_msg = "Set quickmark (0-9):"
+      refresh_cmd
+      chr = getchr
+      if chr && chr.match?(/^[0-9]$/)
+        load_quickmarks
+        @quickmarks[chr] = { "url" => current_tab.url, "title" => current_tab.title.to_s }
+        save_quickmarks
+        @status_msg = "Quickmark #{chr} set: #{current_tab.title}"
+      else
+        @status_msg = "Cancelled"
+      end
+      refresh_cmd
+    end
+
+    def goto_quickmark
+      @status_msg = "Go to quickmark (0-9):"
+      refresh_cmd
+      chr = getchr
+      if chr && chr.match?(/^[0-9]$/)
+        load_quickmarks
+        if @quickmarks[chr]
+          navigate(@quickmarks[chr]["url"])
+        else
+          @status_msg = "No quickmark #{chr}"
+          refresh_cmd
+        end
+      else
+        @status_msg = "Cancelled"
+        refresh_cmd
+      end
+    end
+
+    # Ad blocking {{{2
+    ADBLOCK_FILE = File.join(CONFIG_DIR, "adblock.txt")
+    ADBLOCK_DEFAULT_URL = "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
+
+    def load_adblock
+      @adblock_domains = Set.new
+      if File.exist?(ADBLOCK_FILE)
+        File.readlines(ADBLOCK_FILE).each do |line|
+          line = line.strip
+          next if line.empty? || line.start_with?("#")
+          @adblock_domains << line
+        end
+      end
+    end
+
+    def update_adblock
+      @status_msg = "Downloading adblock list..."
+      refresh_cmd
+      result = @fetcher.fetch(ADBLOCK_DEFAULT_URL)
+      if result[:status] == 200
+        domains = []
+        result[:body].each_line do |line|
+          line = line.strip
+          next if line.empty? || line.start_with?("#")
+          parts = line.split(/\s+/)
+          if parts.length >= 2 && parts[0] == "0.0.0.0"
+            domain = parts[1]
+            next if domain == "0.0.0.0"
+            domains << domain
+          end
+        end
+        Dir.mkdir(CONFIG_DIR) unless Dir.exist?(CONFIG_DIR)
+        File.write(ADBLOCK_FILE, domains.join("\n"))
+        load_adblock
+        @status_msg = "Adblock updated: #{domains.length} domains blocked"
+      else
+        @status_msg = "Adblock update failed"
+      end
+      refresh_cmd
+    end
+
+    def blocked?(url)
+      return false if @adblock_domains.nil? || @adblock_domains.empty?
+      begin
+        host = URI.parse(url).host
+        @adblock_domains.include?(host)
+      rescue
+        false
+      end
+    end
+
+    # Passwords {{{2
+    PASSWORDS_FILE = File.join(CONFIG_DIR, "passwords.yml")
+
+    def load_passwords
+      @passwords = if File.exist?(PASSWORDS_FILE)
+        YAML.safe_load(File.read(PASSWORDS_FILE)) rescue {}
+      else
+        {}
+      end
+      @passwords = {} unless @passwords.is_a?(Hash)
+    end
+
+    def save_passwords
+      Dir.mkdir(CONFIG_DIR) unless Dir.exist?(CONFIG_DIR)
+      File.write(PASSWORDS_FILE, @passwords.to_yaml)
+      File.chmod(0600, PASSWORDS_FILE)
+    end
+
+    def save_password
+      return unless current_tab.url
+      host = URI.parse(current_tab.url).host rescue nil
+      return unless host
+      @pInput.x = 2; @pInput.w = @w - 1; @pInput.y = @h
+      user = @pInput.ask("Username for #{host}: ", "")
+      if user.nil? || user.strip.empty?
+        refresh_cmd; return
+      end
+      pass = @pInput.ask("Password for #{host}: ", "")
+      if pass.nil? || pass.strip.empty?
+        refresh_cmd; return
+      end
+      load_passwords
+      @passwords[host] = { "username" => user.strip, "password" => pass.strip }
+      save_passwords
+      @status_msg = "Password saved for #{host}"
+      refresh_cmd
+    end
+
+    def show_password
+      return unless current_tab.url
+      host = URI.parse(current_tab.url).host rescue nil
+      return unless host
+      load_passwords
+      if @passwords[host]
+        @status_msg = "#{host} - user: #{@passwords[host]["username"]} pass: #{@passwords[host]["password"]}"
+      else
+        @status_msg = "No password stored for #{host}"
       end
       refresh_cmd
     end
@@ -1039,7 +1203,10 @@ module Brrowser
       " "      => :page_down,
       "b"      => :add_bookmark,
       "B"      => :show_bookmarks,
+      "m"      => :set_quickmark,
+      "'"      => :goto_quickmark,
       "i"      => :toggle_images,
+      "p"      => :show_password,
       "P"      => :show_preferences,
       "q"      => :quit_browser,
     }
