@@ -534,14 +534,18 @@ module Brrowser
     end
 
     def clear_images
-      return unless @termpix.supported?
-      @termpix.clear(
-        x: @pMain.x,
-        y: @pMain.y,
-        width: @pMain.w,
-        height: @pMain.h,
-        term_width: @w,
-        term_height: @h)
+      return unless @showing_image
+      if @termpix.supported?
+        @termpix.clear(
+          x: @pMain.x,
+          y: @pMain.y,
+          width: @pMain.w,
+          height: @pMain.h,
+          term_width: @w,
+          term_height: @h)
+      end
+      # For ASCII art, a full_refresh redraws text over the art
+      @pMain.full_refresh if image_mode == :ascii
       @showing_image = false
     end
 
@@ -835,7 +839,7 @@ module Brrowser
       loop do
         chr = getchr
         case chr
-        when "ESC", "q", "Q"
+        when "ESC"
           save_config
           apply_colors
           break
