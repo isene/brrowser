@@ -246,6 +246,15 @@ module Brrowser
     # Navigation {{{2
     def navigate(url)
       url = resolve_search(url)
+      # Handle about: URLs internally
+      if url == "about:blank"
+        current_tab.navigate(url)
+        current_tab.url = url
+        current_tab.title = ""; current_tab.content = ""
+        current_tab.links = []; current_tab.images = []; current_tab.forms = []
+        refresh_all
+        return
+      end
       @status_msg = "Loading #{url}..."
       refresh_cmd
 
