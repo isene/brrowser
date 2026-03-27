@@ -1054,23 +1054,20 @@ module Brrowser
         line = line.rstrip
         # Skip badges, images, and SVG references
         next if line.match?(/^\s*(\[?!|\<img)/)
-        if line.match?(/^# (.+)/)
-          html << "<h1>#{$1}</h1>"
-        elsif line.match?(/^## (.+)/)
-          html << "<h2>#{$1}</h2>"
-        elsif line.match?(/^### (.+)/)
-          html << "<h3>#{$1}</h3>"
+        if (m = line.match(/^# (.+)/))
+          html << "<h1>#{m[1]}</h1>"
+        elsif (m = line.match(/^## (.+)/))
+          html << "<h2>#{m[1]}</h2>"
+        elsif (m = line.match(/^### (.+)/))
+          html << "<h3>#{m[1]}</h3>"
         elsif line.match?(/^\| .+ \|/)
-          # Table row
           cells = line.split("|").map(&:strip).reject(&:empty?)
-          if cells.all? { |c| c.match?(/^[-:]+$/) }
-            next  # Skip separator rows
-          end
+          next if cells.all? { |c| c.match?(/^[-:]+$/) }
           html << "<tr>" + cells.map { |c| "<td>#{md_inline(c)}</td>" }.join + "</tr>"
-        elsif line.match?(/^- (.+)/)
-          html << "<li>#{md_inline($1)}</li>"
+        elsif (m = line.match(/^- (.+)/))
+          html << "<li>#{md_inline(m[1])}</li>"
         elsif line.match?(/^```/)
-          # skip code fences
+          next
         elsif line.strip.empty?
           html << "<br>"
         else
