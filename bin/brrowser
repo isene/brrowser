@@ -1845,8 +1845,13 @@ module Brrowser
     end
 
     def toggle_images
-      if @showing_image
-        clear_images
+      @conf["show_images"] = !@conf["show_images"]
+      @image_mode_cache_conf = nil  # Invalidate cache
+      if !@conf["show_images"]
+        # Force clear all images regardless of state
+        @termpix.clear(x: @pMain.x, y: @pMain.y, width: @pMain.w, height: @pMain.h, term_width: @w, term_height: @h) if @termpix.supported?
+        @pMain.full_refresh
+        @showing_image = false
         @status_msg = "Images hidden"
       else
         show_visible_image
