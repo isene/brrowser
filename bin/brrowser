@@ -950,6 +950,8 @@ module Brrowser
         reload
       when "help"
         show_help
+      when "about"
+        new_tab_with("https://github.com/isene/brrowser")
       when "bookmark", "bm"
         if args
           open_bookmark(args)

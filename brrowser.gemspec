@@ -3,12 +3,12 @@ Gem::Specification.new do |s|
   s.version       = '0.1.0'
   s.licenses      = ['Unlicense']
   s.summary       = "brrowser - A terminal web browser with vim-style keybindings"
-  s.description   = "A terminal web browser combining w3m-style rendering with qutebrowser-style vim keybindings. Features hint mode for link following, tabs, search, bookmarks, and more. Built on rcurses."
+  s.description   = "A terminal web browser combining w3m-style rendering with qutebrowser-style vim keybindings. Features inline images, tabs, forms with password auto-fill, bookmarks, quickmarks, ad blocking, AI page summaries, and more. Built on rcurses."
   s.authors       = ["Geir Isene"]
   s.email         = 'g@isene.com'
   s.homepage      = 'https://isene.com/'
   s.metadata      = { "source_code_uri" => "https://github.com/isene/brrowser" }
-  s.files         = Dir['{bin,lib}/**/*', 'README.md', 'LICENSE']
+  s.files         = Dir['{bin,lib,img}/**/*', 'README.md', 'LICENSE']
   s.executables   = ['brrowser']
   s.require_paths = ['lib']
   s.required_ruby_version = '>= 3.0'
