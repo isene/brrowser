@@ -726,14 +726,26 @@ module Brrowser
     def next_link
       elems = focusable_elements
       return if elems.empty?
-      @focus_index = (@focus_index + 1) % elems.length
+      if @focus_index < 0
+        # First TAB: jump to first visible element
+        vt = @pMain.ix
+        @focus_index = elems.index { |e| e[:line] >= vt } || 0
+      else
+        @focus_index = (@focus_index + 1) % elems.length
+      end
       jump_to_element(elems[@focus_index])
     end
 
     def prev_link
       elems = focusable_elements
       return if elems.empty?
-      @focus_index = (@focus_index - 1) % elems.length
+      if @focus_index < 0
+        # First S-TAB: jump to last visible element
+        vb = @pMain.ix + @pMain.h - 1
+        @focus_index = elems.rindex { |e| e[:line] <= vb } || elems.length - 1
+      else
+        @focus_index = (@focus_index - 1) % elems.length
+      end
       jump_to_element(elems[@focus_index])
     end
 
