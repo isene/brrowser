@@ -1547,11 +1547,12 @@ module Brrowser
 
     def show_preferences
       pw = 56
-      ph = PREF_SETTINGS.length + 4
+      ph = [PREF_SETTINGS.length + 4, @h - 4].min
       px = (@w - pw) / 2
       py = (@h - ph) / 2
       popup = Pane.new(px, py, pw, ph, 252, 234)
       popup.border = true
+      popup.scroll = true
       sel = 0
 
       build = lambda do
@@ -1572,6 +1573,11 @@ module Brrowser
         lines << ""
         lines << " h/l:change  Enter:edit  q:save & close".fg(245)
         popup.text = lines.join("\n")
+        # Keep selected item visible
+        visible = ph - 3  # account for border
+        line_pos = sel + 2  # offset for header lines
+        popup.ix = [line_pos - visible + 1, 0].max if line_pos >= popup.ix + visible
+        popup.ix = line_pos if line_pos < popup.ix
         popup.refresh
       end
 
