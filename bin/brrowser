@@ -76,11 +76,14 @@ module Brrowser
     <tr><td>o</td><td>Open URL</td></tr>
     <tr><td>O</td><td>Open URL (pre-filled with current)</td></tr>
     <tr><td>t</td><td>Open URL in new tab</td></tr>
-    <tr><td>Tab</td><td>Jump to next link</td></tr>
-    <tr><td>Shift-Tab</td><td>Jump to previous link</td></tr>
-    <tr><td>Enter</td><td>Follow current/numbered link</td></tr>
+    <tr><td>Tab</td><td>Jump to next link/field</td></tr>
+    <tr><td>Shift-Tab</td><td>Jump to previous link/field</td></tr>
+    <tr><td>Enter</td><td>Follow link or edit field</td></tr>
+    <tr><td>y</td><td>Copy page URL to clipboard</td></tr>
+    <tr><td>Y</td><td>Copy focused link URL or field value</td></tr>
     <tr><td>e</td><td>Edit page source in $EDITOR</td></tr>
     <tr><td>f</td><td>Fill and submit form</td></tr>
+    <tr><td>Ctrl-g</td><td>Edit focused field in $EDITOR</td></tr>
     <tr><td>H / Backspace</td><td>Go back</td></tr>
     <tr><td>L</td><td>Go forward</td></tr>
     <tr><td>r</td><td>Reload page</td></tr>
@@ -259,6 +262,8 @@ module Brrowser
       # Always clear old state
       clear_images
       @current_link = -1
+      @focus_index = -1
+      @focused_element = nil
       @highlighted_line = nil
 
       # Handle image URLs: display the image instead of raw binary
@@ -698,56 +703,83 @@ module Brrowser
       refresh_cmd
     end
 
-    # Link following {{{2
-    @current_link = -1
+    # Link/field navigation {{{2
+    # TAB cycles through links and form fields together, sorted by line.
+    @focus_index = -1
+
+    def focusable_elements
+      elements = []
+      (current_tab.links || []).each do |l|
+        next unless l[:line]
+        elements << { type: :link, data: l, line: l[:line] }
+      end
+      (current_tab.forms || []).each do |form|
+        (form[:fields] || []).each do |field|
+          next if field[:type] == "hidden" || field[:type] == "submit"
+          next unless field[:line] || form[:line]
+          elements << { type: :field, data: field, form: form, line: field[:line] || form[:line] }
+        end
+      end
+      elements.sort_by { |e| e[:line] }
+    end
 
     def next_link
-      links = current_tab.links
-      return if links.empty?
-      @current_link = (@current_link + 1) % links.length
-      jump_to_link(@current_link)
+      elems = focusable_elements
+      return if elems.empty?
+      @focus_index = (@focus_index + 1) % elems.length
+      jump_to_element(elems[@focus_index])
     end
 
     def prev_link
-      links = current_tab.links
-      return if links.empty?
-      @current_link = (@current_link - 1) % links.length
-      jump_to_link(@current_link)
+      elems = focusable_elements
+      return if elems.empty?
+      @focus_index = (@focus_index - 1) % elems.length
+      jump_to_element(elems[@focus_index])
     end
 
-    def jump_to_link(idx)
-      link = current_tab.links[idx]
-      return unless link && link[:line]
+    def jump_to_element(elem)
       lines = current_tab.content.split("\n")
-      # Remove highlight from previous link
+      # Remove old highlight
       if @highlighted_line && @highlighted_line < lines.length
         lines[@highlighted_line] = lines[@highlighted_line]
           .gsub("\e[7m", "").gsub("\e[27m", "")
       end
-      # Highlight current link line with reverse
-      if link[:line] < lines.length
-        lines[link[:line]] = "\e[7m#{lines[link[:line]]}\e[27m"
-        @highlighted_line = link[:line]
+      # Highlight current element line
+      if elem[:line] < lines.length
+        lines[elem[:line]] = "\e[7m#{lines[elem[:line]]}\e[27m"
+        @highlighted_line = elem[:line]
       end
       current_tab.content = lines.join("\n")
-      # Scroll so the link is visible near the top
-      @pMain.ix = [link[:line] - 3, 0].max
+      @pMain.ix = [elem[:line] - 3, 0].max
       current_tab.ix = @pMain.ix
-      @status_msg = "[#{link[:index]}] #{link[:text][0..60]} -> #{link[:href][0..60]}"
+      @focused_element = elem
+
+      if elem[:type] == :link
+        l = elem[:data]
+        @current_link = l[:index]
+        @status_msg = "[#{l[:index]}] #{l[:text][0..60]} -> #{l[:href][0..60]}"
+      else
+        f = elem[:data]
+        val = f[:value].to_s
+        @current_link = -1
+        @status_msg = "[#{f[:type]}] #{f[:placeholder] || f[:name]}: #{val[0..40]}"
+      end
       refresh_main
       refresh_cmd
     end
 
     def follow_link_prompt
-      return if current_tab.links.empty?
-      # If we've Tab-navigated to a link, follow it directly
-      if @current_link >= 0 && @current_link < current_tab.links.length
-        link = current_tab.links[@current_link]
-        if link
-          navigate(link[:href])
-          return
-        end
+      # If focused on a link, follow it
+      if @focused_element && @focused_element[:type] == :link
+        navigate(@focused_element[:data][:href])
+        return
       end
+      # If focused on a form field, edit it
+      if @focused_element && @focused_element[:type] == :field
+        edit_focused_field
+        return
+      end
+      return if current_tab.links.empty?
       @pInput.x = 2
       @pInput.w = @w - 1
       @pInput.y = @h
@@ -763,6 +795,75 @@ module Brrowser
       else
         @status_msg = "No link ##{idx}"
         refresh_cmd
+      end
+    end
+
+    def edit_focused_field
+      return unless @focused_element && @focused_element[:type] == :field
+      field = @focused_element[:data]
+      @pInput.x = 2; @pInput.w = @w - 1; @pInput.y = @h
+      val = @pInput.ask("#{field[:placeholder] || field[:name]}: ", field[:value].to_s)
+      if val && !val.strip.empty?
+        field[:value] = val.strip
+        @status_msg = "Set #{field[:name]} = #{val.strip}"
+      end
+      refresh_cmd
+    end
+
+    def edit_field_in_editor
+      return unless @focused_element && @focused_element[:type] == :field
+      field = @focused_element[:data]
+      tmpfile = File.join(Dir.tmpdir, "brrowser_field_#{Process.pid}.txt")
+      File.write(tmpfile, field[:value].to_s)
+      editor = ENV["EDITOR"] || "vim"
+      Rcurses.cleanup!
+      system("#{editor} #{Shellwords.escape(tmpfile)}")
+      Rcurses.init!
+      if File.exist?(tmpfile)
+        field[:value] = File.read(tmpfile).strip
+        File.delete(tmpfile)
+        @status_msg = "Set #{field[:name]} from editor"
+      end
+      refresh_all
+    end
+
+    # Yank/copy {{{2
+    def yank_url
+      url = current_tab.url.to_s
+      copy_to_clipboard(url)
+      @status_msg = "Copied: #{url}"
+      refresh_cmd
+    end
+
+    def yank_element
+      if @focused_element
+        if @focused_element[:type] == :link
+          text = @focused_element[:data][:href]
+        else
+          text = @focused_element[:data][:value].to_s
+        end
+      else
+        text = current_tab.url.to_s
+      end
+      copy_to_clipboard(text)
+      @status_msg = "Copied: #{text[0..60]}"
+      refresh_cmd
+    end
+
+    def copy_to_clipboard(text)
+      # Try xclip, xsel, wl-copy in order
+      %w[xclip xsel wl-copy].each do |cmd|
+        if system("which #{cmd} > /dev/null 2>&1")
+          case cmd
+          when "xclip"
+            IO.popen("xclip -selection clipboard", "w") { |io| io.write(text) }
+          when "xsel"
+            IO.popen("xsel --clipboard --input", "w") { |io| io.write(text) }
+          when "wl-copy"
+            IO.popen("wl-copy", "w") { |io| io.write(text) }
+          end
+          return
+        end
       end
     end
 
@@ -1498,8 +1599,11 @@ module Brrowser
       "C-D"    => :half_page_down, "C-U"     => :half_page_up,
       "PgDOWN" => :page_down,      "PgUP"    => :page_up,
       " "      => :page_down,
+      "y"      => :yank_url,
+      "Y"      => :yank_element,
       "e"      => :edit_source,
       "f"      => :fill_form,
+      "C-G"    => :edit_field_in_editor,
       "b"      => :add_bookmark,
       "B"      => :show_bookmarks,
       "m"      => :set_quickmark,
