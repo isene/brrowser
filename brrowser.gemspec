@@ -1,6 +1,6 @@
 Gem::Specification.new do |s|
   s.name          = 'brrowser'
-  s.version       = '0.1.2'
+  s.version       = '0.1.3'
   s.licenses      = ['Unlicense']
   s.summary       = "brrowser - A terminal web browser with vim-style keybindings"
   s.description   = "A terminal web browser combining w3m-style rendering with qutebrowser-style vim keybindings. Features inline images, tabs, forms with password auto-fill, bookmarks, quickmarks, ad blocking, AI page summaries, and more. Built on rcurses."
