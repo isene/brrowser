@@ -317,7 +317,13 @@ module Brrowser
         current_tab.links   = page[:links]
         current_tab.images  = page[:images]
         current_tab.forms   = page[:forms]
-        apply_site_colors(page[:colors])
+        colors = page[:colors]
+        # If no colors found in HTML, try first external stylesheet
+        if @conf["match_site_colors"] && !colors[:bg] && !colors[:fg]
+          colors = fetch_external_css_colors(result[:body], result[:url])
+        end
+        current_tab.instance_variable_set(:@site_colors, colors)
+        apply_site_colors(colors)
         check_autofill
       else
         current_tab.title   = result[:url]
@@ -1507,18 +1513,46 @@ module Brrowser
       refresh_all
     end
 
-    def apply_site_colors(colors)
-      return unless colors && @conf["match_site_colors"]
-      if colors[:bg]
-        @pMain.bg = colors[:bg]
+    def apply_site_colors(colors = nil)
+      colors ||= current_tab.instance_variable_get(:@site_colors) rescue nil
+      if colors && @conf["match_site_colors"]
+        @pMain.bg = colors[:bg] || @conf["content_bg"]
+        @pMain.fg = colors[:fg] || @conf["content_fg"]
       else
         @pMain.bg = @conf["content_bg"]
-      end
-      if colors[:fg]
-        @pMain.fg = colors[:fg]
-      else
         @pMain.fg = @conf["content_fg"]
       end
+    end
+
+    def fetch_external_css_colors(html, base_url)
+      doc = Nokogiri::HTML(html)
+      # Find first local stylesheet
+      doc.css("link[rel=stylesheet]").each do |link|
+        href = link["href"].to_s
+        next if href.empty?
+        next if href.match?(/fonts\.googleapis|font-awesome|calendly|bootstrap/i)
+        href = "https:#{href}" if href.start_with?("//")
+        href = URI.join(base_url, href).to_s unless href.match?(%r{^https?://})
+        begin
+          css_result = @fetcher.fetch(href)
+          next unless css_result[:status] == 200
+          css = css_result[:body].to_s.force_encoding("UTF-8").scrub("")
+          bg = nil; fg = nil
+          # Check body { } rule
+          if css.match(/body\s*\{([^}]+)\}/m)
+            block = $1
+            bg_match = block[/background(?:-color)?\s*:\s*([^;]+)/, 1]
+            fg_match = block[/(?<!background-)color\s*:\s*([^;]+)/, 1]
+            r = Renderer.new(80)
+            bg = r.send(:parse_css_color, bg_match.strip) if bg_match
+            fg = r.send(:parse_css_color, fg_match.strip) if fg_match
+          end
+          return { bg: bg, fg: fg } if bg || fg
+        rescue
+          next
+        end
+      end
+      { bg: nil, fg: nil }
     end
 
     # Preferences {{{2
@@ -1589,6 +1623,7 @@ module Brrowser
         when "ESC"
           save_config
           apply_colors
+          apply_site_colors
           break
         when "j", "DOWN"
           sel = (sel + 1) % PREF_SETTINGS.length
