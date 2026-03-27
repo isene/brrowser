@@ -26,14 +26,14 @@ end
 # brrowser {{{1
 module Brrowser
   VERSION = "0.1.3"
-  HOMEPAGE = "https://github.com/isene/brrowser"
+  HOMEPAGE = "about:home"
   CONFIG_DIR  = File.join(Dir.home, ".brrowser")
   CONFIG_FILE = File.join(CONFIG_DIR, "config.yml")
 
   DEFAULTS = {
     "show_images"  => true,
     "image_mode"   => "auto",  # auto, termpix, ascii, off
-    "homepage"     => "https://github.com/isene/brrowser",
+    "homepage"     => "about:home",
     "search_engine" => "g",
     "download_dir" => "~/Downloads",
     "info_fg"      => 252,
@@ -254,6 +254,10 @@ module Brrowser
         current_tab.title = ""; current_tab.content = ""
         current_tab.links = []; current_tab.images = []; current_tab.forms = []
         refresh_all
+        return
+      end
+      if url == "about:home"
+        show_homepage
         return
       end
       @status_msg = "Loading #{url}..."
@@ -1028,6 +1032,76 @@ module Brrowser
     end
 
     # Help {{{2
+    def show_homepage
+      # Find README.md from gem install or local dev
+      readme = nil
+      [File.join(__dir__, "..", "README.md"),
+       File.join(__dir__, "..", "..", "README.md")].each do |path|
+        if File.exist?(path)
+          readme = File.read(path)
+          break
+        end
+      end
+
+      unless readme
+        navigate("https://github.com/isene/brrowser")
+        return
+      end
+
+      # Convert markdown to simple HTML
+      html = "<html><body>"
+      readme.each_line do |line|
+        line = line.rstrip
+        # Skip badges, images, and SVG references
+        next if line.match?(/^\s*(\[?!|\<img)/)
+        if line.match?(/^# (.+)/)
+          html << "<h1>#{$1}</h1>"
+        elsif line.match?(/^## (.+)/)
+          html << "<h2>#{$1}</h2>"
+        elsif line.match?(/^### (.+)/)
+          html << "<h3>#{$1}</h3>"
+        elsif line.match?(/^\| .+ \|/)
+          # Table row
+          cells = line.split("|").map(&:strip).reject(&:empty?)
+          if cells.all? { |c| c.match?(/^[-:]+$/) }
+            next  # Skip separator rows
+          end
+          html << "<tr>" + cells.map { |c| "<td>#{md_inline(c)}</td>" }.join + "</tr>"
+        elsif line.match?(/^- (.+)/)
+          html << "<li>#{md_inline($1)}</li>"
+        elsif line.match?(/^```/)
+          # skip code fences
+        elsif line.strip.empty?
+          html << "<br>"
+        else
+          html << "<p>#{md_inline(line)}</p>"
+        end
+      end
+      html << "</body></html>"
+
+      current_tab.navigate("about:home") unless current_tab.url == "about:home"
+      current_tab.url = "about:home"
+      renderer = Renderer.new(@w - 2)
+      page = renderer.render(html)
+      current_tab.title   = "brrowser"
+      current_tab.content = page[:text]
+      current_tab.links   = page[:links]
+      current_tab.images  = []
+      current_tab.forms   = []
+      current_tab.ix = 0
+      @pMain.ix = 0
+      @status_msg = ""
+      refresh_all
+    end
+
+    def md_inline(text)
+      # Convert markdown inline formatting to HTML
+      text = text.gsub(/\*\*(.+?)\*\*/, '<strong>\1</strong>')
+      text = text.gsub(/`([^`]+)`/, '<code>\1</code>')
+      text = text.gsub(/\[([^\]]+)\]\(([^)]+)\)/, '<a href="\2">\1</a>')
+      text
+    end
+
     def show_help
       tab = Tab.new
       @tabs.insert(@current_tab + 1, tab)
@@ -1646,7 +1720,9 @@ module Brrowser
       sel = 0
 
       build = lambda do
-        lines = [" brrowser Preferences".b, ""]
+        lines = [" brrowser Preferences".b]
+        lines << " h/l:change  H/L:+/-10  Enter:edit  ESC:close".fg(245)
+        lines << ""
         PREF_SETTINGS.each_with_index do |(label, key, type), i|
           val = @conf[key]
           disp = case type
@@ -1656,18 +1732,19 @@ module Brrowser
                    val.to_s
                  end
           prefix = i == sel ? " \u25b6 ".fg(220) : "   "
-          line = "#{prefix}#{label.ljust(16)} \u25c4 #{disp.to_s.ljust(12)} \u25b6"
+          line = "#{prefix}#{label.ljust(18)} \u25c4 #{disp.to_s.ljust(14)} \u25b6"
           line = line.r if i == sel
           lines << line
         end
-        lines << ""
-        lines << " h/l:change  Enter:edit  q:save & close".fg(245)
         popup.text = lines.join("\n")
-        # Keep selected item visible
-        visible = ph - 3  # account for border
-        line_pos = sel + 2  # offset for header lines
-        popup.ix = [line_pos - visible + 1, 0].max if line_pos >= popup.ix + visible
-        popup.ix = line_pos if line_pos < popup.ix
+        # Keep selected item visible in scrollable area
+        visible = ph - 3
+        line_pos = sel + 3  # offset for header + legend + blank
+        if line_pos >= popup.ix + visible
+          popup.ix = line_pos - visible + 1
+        elsif line_pos < popup.ix
+          popup.ix = [line_pos, 0].max
+        end
         popup.refresh
       end
 
