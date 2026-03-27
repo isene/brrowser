@@ -282,7 +282,11 @@ module Brrowser
           ensure_blank_line
         end
       when "table"
-        render_table(node)
+        if layout_table?(node)
+          walk(node)  # Treat layout tables as normal content
+        else
+          render_table(node)
+        end
       when "form"
         ensure_blank_line
         action = node["action"] || ""
@@ -336,6 +340,16 @@ module Brrowser
         walk(node)
       when "span"
         walk(node)
+      when "td", "th"
+        # Reached here from layout table walk
+        flush_line if @col > 0
+        walk(node)
+        flush_line if @col > 0
+      when "tr"
+        walk(node)
+        flush_line if @col > 0
+      when "tbody", "thead", "tfoot", "caption"
+        walk(node)
       else
         walk(node)
       end
@@ -383,6 +397,22 @@ module Brrowser
       rescue
         href
       end
+    end
+
+    def layout_table?(node)
+      # Nested tables = layout
+      return true if node.css("table").any?
+      # Single-column tables = layout
+      first_row = node.at_css("tr")
+      return true if first_row && first_row.css("td, th").length <= 1
+      # Tables containing block elements in cells = layout
+      node.css("td, th").first(4).each do |cell|
+        return true if cell.at_css("p, div, h1, h2, h3, h4, ul, ol, table, blockquote")
+      end
+      # Width 100% = layout
+      style = node["style"].to_s + " " + (node["width"].to_s)
+      return true if style.match?(/100%/)
+      false
     end
 
     def render_table(table_node)
