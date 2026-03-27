@@ -15,6 +15,13 @@ module Brrowser
     end
 
     def fetch(url, method: :get, params: nil)
+      # Handle local files
+      if url.match?(%r{^file://})
+        path = url.sub(%r{^file://}, "")
+        body = File.exist?(path) ? File.read(path) : "File not found: #{path}"
+        ct = path.match?(/\.html?$/i) ? "text/html" : "text/plain"
+        return { body: body, url: url, content_type: ct, status: 200 }
+      end
       url = "https://#{url}" unless url.match?(%r{^https?://})
       uri = URI.parse(url)
       redirects = 0
