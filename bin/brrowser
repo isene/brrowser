@@ -1033,49 +1033,21 @@ module Brrowser
 
     # Help {{{2
     def show_homepage
-      # Find README.md from gem install or local dev
-      readme = nil
-      [File.join(__dir__, "..", "README.md"),
-       File.join(__dir__, "..", "..", "README.md")].each do |path|
+      html_file = nil
+      [File.join(__dir__, "..", "README.html"),
+       File.join(__dir__, "..", "..", "README.html")].each do |path|
         if File.exist?(path)
-          readme = File.read(path)
+          html_file = path
           break
         end
       end
 
-      unless readme
+      unless html_file
         navigate("https://github.com/isene/brrowser")
         return
       end
 
-      # Convert markdown to simple HTML
-      html = "<html><body>"
-      readme.each_line do |line|
-        line = line.rstrip
-        # Skip badges, images, and SVG references
-        next if line.match?(/^\s*(\[?!|\<img)/)
-        if (m = line.match(/^# (.+)/))
-          html << "<h1>#{m[1]}</h1>"
-        elsif (m = line.match(/^## (.+)/))
-          html << "<h2>#{m[1]}</h2>"
-        elsif (m = line.match(/^### (.+)/))
-          html << "<h3>#{m[1]}</h3>"
-        elsif line.match?(/^\| .+ \|/)
-          cells = line.split("|").map(&:strip).reject(&:empty?)
-          next if cells.all? { |c| c.match?(/^[-:]+$/) }
-          html << "<tr>" + cells.map { |c| "<td>#{md_inline(c)}</td>" }.join + "</tr>"
-        elsif (m = line.match(/^- (.+)/))
-          html << "<li>#{md_inline(m[1])}</li>"
-        elsif line.match?(/^```/)
-          next
-        elsif line.strip.empty?
-          html << "<br>"
-        else
-          html << "<p>#{md_inline(line)}</p>"
-        end
-      end
-      html << "</body></html>"
-
+      html = File.read(html_file)
       current_tab.navigate("about:home") unless current_tab.url == "about:home"
       current_tab.url = "about:home"
       renderer = Renderer.new(@w - 2)
@@ -1089,14 +1061,6 @@ module Brrowser
       @pMain.ix = 0
       @status_msg = ""
       refresh_all
-    end
-
-    def md_inline(text)
-      # Convert markdown inline formatting to HTML
-      text = text.gsub(/\*\*(.+?)\*\*/, '<strong>\1</strong>')
-      text = text.gsub(/`([^`]+)`/, '<code>\1</code>')
-      text = text.gsub(/\[([^\]]+)\]\(([^)]+)\)/, '<a href="\2">\1</a>')
-      text
     end
 
     def show_help

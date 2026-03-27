@@ -8,7 +8,7 @@ Gem::Specification.new do |s|
   s.email         = 'g@isene.com'
   s.homepage      = 'https://isene.com/'
   s.metadata      = { "source_code_uri" => "https://github.com/isene/brrowser" }
-  s.files         = Dir['{bin,lib,img}/**/*', 'README.md', 'LICENSE']
+  s.files         = Dir['{bin,lib,img}/**/*', 'README.md', 'README.html', 'LICENSE']
   s.executables   = ['brrowser']
   s.require_paths = ['lib']
   s.required_ruby_version = '>= 3.0'

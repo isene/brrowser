@@ -1,0 +1,95 @@
+<html><body>
+<h1>brrowser</h1>
+<p><strong>The terminal web browser with vim-style keys.</strong></p>
+<p>A terminal web browser combining w3m-style rendering with qutebrowser-style keyboard navigation. Renders HTML with styled headings, links, tables, forms, and inline images. No modes, no mouse, just keys.</p>
+
+<h2>Features</h2>
+<p><strong>Browsing:</strong> Full HTML rendering, inline images (termpix/chafa), YouTube embeds, tabs, back/forward history, search engines, ad blocking, cookie persistence.</p>
+<p><strong>Navigation:</strong> vim-style keys (j/k/gg/G), TAB through links and form fields, search with /, bookmarks and quickmarks.</p>
+<p><strong>Forms:</strong> Fill and submit with auto-fill from stored passwords. Firefox-style save prompt for new logins.</p>
+<p><strong>Images:</strong> Kitty/sixel/w3m via termpix, ASCII art via chafa. Toggle with i.</p>
+<p><strong>AI:</strong> Press I for an AI summary of the current page.</p>
+<p><strong>Extras:</strong> Edit source in $EDITOR, download files, xdg-open for binaries, configurable colors, site color matching.</p>
+
+<h2>Installation</h2>
+<pre>gem install brrowser</pre>
+
+<h3>Dependencies</h3>
+<ul>
+<li>Ruby 3.0+</li>
+<li><a href="https://github.com/isene/rcurses">rcurses</a> (terminal UI)</li>
+<li><a href="https://nokogiri.org/">nokogiri</a> (HTML parsing)</li>
+<li><a href="https://github.com/isene/termpix">termpix</a> (image display, optional)</li>
+</ul>
+<p>Optional: <a href="https://hpjansson.org/chafa/">chafa</a> for ASCII art, ImageMagick for image scaling, xclip/xsel/wl-copy for clipboard.</p>
+
+<h2>Usage</h2>
+<pre>brrowser                        # Open this page
+brrowser https://example.com    # Open URL directly
+brrowser isene.org              # Auto-adds https://</pre>
+
+<h2>Keybindings</h2>
+<table>
+<tr><th>Key</th><th>Action</th></tr>
+<tr><td>j / k / arrows</td><td>Scroll up/down</td></tr>
+<tr><td>&lt; / &gt;</td><td>Scroll left/right</td></tr>
+<tr><td>Left / Right</td><td>Previous/next tab</td></tr>
+<tr><td>gg / G</td><td>Top / bottom of page</td></tr>
+<tr><td>Ctrl-d / Ctrl-u</td><td>Half page down/up</td></tr>
+<tr><td>Space / PgDn / PgUp</td><td>Page down/up</td></tr>
+<tr><td>TAB / S-TAB</td><td>Next/previous link or field</td></tr>
+<tr><td>Enter</td><td>Follow link or edit field</td></tr>
+<tr><td>o / O</td><td>Open URL / edit current URL</td></tr>
+<tr><td>t</td><td>Open URL in new tab</td></tr>
+<tr><td>H / Backspace</td><td>Go back</td></tr>
+<tr><td>L</td><td>Go forward</td></tr>
+<tr><td>r</td><td>Reload page</td></tr>
+<tr><td>d</td><td>Close tab</td></tr>
+<tr><td>u</td><td>Undo close tab</td></tr>
+<tr><td>/</td><td>Search page</td></tr>
+<tr><td>n / N</td><td>Next/previous search match</td></tr>
+<tr><td>b / B</td><td>Bookmark / show bookmarks</td></tr>
+<tr><td>m + key</td><td>Set quickmark (0-9, a-z)</td></tr>
+<tr><td>' + key</td><td>Go to quickmark (0-9, a-z)</td></tr>
+<tr><td>f</td><td>Fill and submit form</td></tr>
+<tr><td>y / Y</td><td>Copy URL / copy focused element</td></tr>
+<tr><td>e</td><td>Edit page source in $EDITOR</td></tr>
+<tr><td>Ctrl-g</td><td>Edit field in $EDITOR</td></tr>
+<tr><td>i</td><td>Toggle images</td></tr>
+<tr><td>I</td><td>AI page summary</td></tr>
+<tr><td>p</td><td>Show stored password</td></tr>
+<tr><td>P</td><td>Preferences</td></tr>
+<tr><td>Ctrl-l</td><td>Redraw screen</td></tr>
+<tr><td>?</td><td>Help (detailed)</td></tr>
+<tr><td>q</td><td>Quit</td></tr>
+</table>
+
+<h2>Commands</h2>
+<p>Type <code>:</code> to enter command mode.</p>
+<table>
+<tr><th>Command</th><th>Action</th></tr>
+<tr><td>:open URL / :o</td><td>Navigate</td></tr>
+<tr><td>:tabopen URL / :to</td><td>Open in new tab</td></tr>
+<tr><td>:close / :q</td><td>Close tab</td></tr>
+<tr><td>:quit / :qa</td><td>Quit</td></tr>
+<tr><td>:back / :forward</td><td>History navigation</td></tr>
+<tr><td>:bookmark / :bm</td><td>Add bookmark or open by name</td></tr>
+<tr><td>:bookmarks / :bms</td><td>List bookmarks</td></tr>
+<tr><td>:download / :dl</td><td>Download file</td></tr>
+<tr><td>:adblock</td><td>Update ad blocklist</td></tr>
+<tr><td>:password / :pw</td><td>Save password for site</td></tr>
+<tr><td>:about</td><td>Open project GitHub page</td></tr>
+</table>
+
+<h2>Configuration</h2>
+<p>Press <strong>P</strong> for preferences: image mode, homepage, search engine, download folder, all colors.</p>
+<p>Data stored in <code>~/.brrowser/</code>: config.yml, bookmarks.yml, quickmarks.yml, passwords.yml, cookies.yml, adblock.txt</p>
+
+<h2>Links</h2>
+<ul>
+<li><a href="https://github.com/isene/brrowser">GitHub</a></li>
+<li><a href="https://rubygems.org/gems/brrowser">RubyGems</a></li>
+<li><a href="https://isene.org">Author: Geir Isene</a></li>
+</ul>
+<p>Created by Geir Isene with extensive pair-programming with Claude Code.</p>
+</body></html>
