@@ -501,33 +501,41 @@ module Brrowser
     end
 
     def scroll_down
-      had_images = @showing_image
-      clear_images if @showing_image
-      @pMain.linedown
-      current_tab.ix = @pMain.ix
-      show_visible_image if had_images
+      if @showing_image
+        clear_images
+        @pMain.linedown
+        current_tab.ix = @pMain.ix
+        show_visible_image
+      else
+        @pMain.linedown
+        current_tab.ix = @pMain.ix
+      end
     end
 
     def scroll_up
-      had_images = @showing_image
-      clear_images if @showing_image
-      @pMain.lineup
-      current_tab.ix = @pMain.ix
-      show_visible_image if had_images
+      if @showing_image
+        clear_images
+        @pMain.lineup
+        current_tab.ix = @pMain.ix
+        show_visible_image
+      else
+        @pMain.lineup
+        current_tab.ix = @pMain.ix
+      end
     end
 
     def page_down
       clear_images if @showing_image
       @pMain.pagedown
       current_tab.ix = @pMain.ix
-      show_visible_image
+      show_visible_image if image_mode != :off
     end
 
     def page_up
       clear_images if @showing_image
       @pMain.pageup
       current_tab.ix = @pMain.ix
-      show_visible_image
+      show_visible_image if image_mode != :off
     end
 
     def half_page_down
@@ -535,7 +543,7 @@ module Brrowser
       half = (@h - 3) / 2
       half.times { @pMain.linedown }
       current_tab.ix = @pMain.ix
-      show_visible_image
+      show_visible_image if image_mode != :off
     end
 
     def half_page_up
@@ -543,7 +551,7 @@ module Brrowser
       half = (@h - 3) / 2
       half.times { @pMain.lineup }
       current_tab.ix = @pMain.ix
-      show_visible_image
+      show_visible_image if image_mode != :off
     end
 
     def go_top
@@ -551,23 +559,23 @@ module Brrowser
       @pMain.ix = 0
       current_tab.ix = 0
       refresh_main
-      show_visible_image
+      show_visible_image if image_mode != :off
     end
 
     def go_bottom
       clear_images if @showing_image
       @pMain.bottom
       current_tab.ix = @pMain.ix
-      show_visible_image
+      show_visible_image if image_mode != :off
     end
 
     def redraw_screen
-      clear_images
+      clear_images if @showing_image
       @pInfo.full_refresh
       @pTab.full_refresh
       @pMain.full_refresh
       @pCmd.full_refresh
-      show_visible_image
+      show_visible_image if image_mode != :off
     end
 
     # Images {{{2
@@ -613,14 +621,18 @@ module Brrowser
     end
 
     def image_mode
+      return @image_mode_cache if @image_mode_cache_conf == [@conf["image_mode"], @conf["show_images"]]
+      @image_mode_cache_conf = [@conf["image_mode"], @conf["show_images"]]
       mode = @conf["image_mode"]
-      return :off unless @conf["show_images"]
-      case mode
-      when "termpix" then @termpix.supported? ? :termpix : :off
-      when "ascii"   then :ascii
-      when "off"     then :off
-      else # auto
-        @termpix.supported? ? :termpix : (chafa_available? ? :ascii : :off)
+      @image_mode_cache = if !@conf["show_images"]
+        :off
+      else
+        case mode
+        when "termpix" then @termpix.supported? ? :termpix : :off
+        when "ascii"   then :ascii
+        when "off"     then :off
+        else @termpix.supported? ? :termpix : (chafa_available? ? :ascii : :off)
+        end
       end
     end
 
@@ -1786,7 +1798,7 @@ module Brrowser
         end
 
         # Auto-show first visible image when downloads complete
-        if @termpix.supported? && !@showing_image
+        if image_mode != :off && !@showing_image
           new_count = @img_cache.size
           if new_count > @last_img_count
             @last_img_count = new_count
