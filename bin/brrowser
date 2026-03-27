@@ -1854,8 +1854,10 @@ module Brrowser
         @showing_image = false
         @status_msg = "Images hidden"
       else
+        # Re-trigger downloads if needed, then show
+        start_image_downloads
         show_visible_image
-        @status_msg = @showing_image ? "Images shown" : "No images in view"
+        @status_msg = @showing_image ? "Images shown" : "Downloading images..."
       end
       refresh_cmd
     end
