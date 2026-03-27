@@ -45,7 +45,8 @@ module Brrowser
       walk(body)
       flush_line
 
-      { text: @output.join("\n"), links: @links, images: @images, forms: @forms, title: title }
+      site_colors = extract_site_colors(doc)
+      { text: @output.join("\n"), links: @links, images: @images, forms: @forms, title: title, colors: site_colors }
     end
 
     private
@@ -437,9 +438,7 @@ module Brrowser
     end
 
     def render_table_vertical(rows, table_node)
-      # Render each row as a block with label: value pairs
       headers = table_node.css("th").any? ? rows.shift : nil
-
       rows.each do |row|
         row.each_with_index do |cell, ci|
           next if cell.strip.empty?
@@ -449,5 +448,117 @@ module Brrowser
         @output << (" " * @indent) + ("\u2500" * 20).fg(240)
       end
     end
+
+    # Site color extraction {{{
+    def extract_site_colors(doc)
+      bg = nil; fg = nil
+
+      # 1. HTML attributes (old-school)
+      body = doc.at_css("body")
+      if body
+        bg = parse_css_color(body["bgcolor"]) if body["bgcolor"]
+        fg = parse_css_color(body["text"]) if body["text"]
+      end
+
+      # 2. Inline styles on body/html
+      [body, doc.at_css("html")].compact.each do |node|
+        style = node["style"].to_s
+        next if style.empty?
+        bg ||= extract_css_color(style, /background(?:-color)?\s*:\s*([^;]+)/)
+        fg ||= extract_css_color(style, /(?<!background-)color\s*:\s*([^;]+)/)
+      end
+
+      # 3. Embedded <style> blocks - check body, html, :root rules
+      unless bg && fg
+        doc.css("style").each do |style_node|
+          css = style_node.text
+          %w[body html :root .page .site .wrapper #page #wrapper #content].each do |sel|
+            pattern = /#{Regexp.escape(sel)}\s*\{([^}]+)\}/m
+            if css.match(pattern)
+              block = $1
+              bg ||= extract_css_color(block, /background(?:-color)?\s*:\s*([^;]+)/)
+              fg ||= extract_css_color(block, /(?<!background-)color\s*:\s*([^;]+)/)
+            end
+          end
+          # CSS variables: --bg-color, --background, --text-color, etc.
+          css.scan(/--(bg|background|main-bg|site-bg|page-bg)[^:]*:\s*([^;}\n]+)/) do |_, val|
+            bg ||= parse_css_color(val.strip)
+          end
+          css.scan(/--(fg|text|color|main-color|text-color|font-color)[^:]*:\s*([^;}\n]+)/) do |_, val|
+            fg ||= parse_css_color(val.strip)
+          end
+        end
+      end
+
+      # 4. Meta theme-color
+      unless bg
+        meta = doc.at_css('meta[name="theme-color"]')
+        bg = parse_css_color(meta["content"]) if meta && meta["content"]
+      end
+
+      { bg: bg, fg: fg }
+    end
+
+    def extract_css_color(css_text, regex)
+      return nil unless css_text.match?(regex)
+      val = css_text[regex, 1]&.strip
+      parse_css_color(val)
+    end
+
+    def parse_css_color(val)
+      return nil unless val
+      val = val.strip.downcase
+
+      # Hex colors
+      if val.match?(/^#[0-9a-f]{6}$/)
+        return hex_to_256(val)
+      elsif val.match?(/^#[0-9a-f]{3}$/)
+        expanded = "##{val[1]*2}#{val[2]*2}#{val[3]*2}"
+        return hex_to_256(expanded)
+      end
+
+      # rgb(r, g, b)
+      if val.match(/rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/)
+        r, g, b = $1.to_i, $2.to_i, $3.to_i
+        return rgb_to_256(r, g, b)
+      end
+
+      # Named colors (common ones)
+      named = {
+        "white" => 15, "black" => 0, "red" => 1, "green" => 2,
+        "blue" => 4, "yellow" => 3, "cyan" => 6, "magenta" => 5,
+        "gray" => 245, "grey" => 245, "silver" => 250,
+        "darkgray" => 238, "darkgrey" => 238,
+        "lightgray" => 252, "lightgrey" => 252,
+        "navy" => 17, "teal" => 30, "maroon" => 1,
+        "olive" => 3, "purple" => 5, "aqua" => 14,
+        "orange" => 208, "pink" => 218,
+        "whitesmoke" => 255, "ghostwhite" => 255,
+        "aliceblue" => 153, "ivory" => 255,
+      }
+      named[val.gsub(/\s/, "")]
+    end
+
+    def hex_to_256(hex)
+      r = hex[1..2].to_i(16)
+      g = hex[3..4].to_i(16)
+      b = hex[5..6].to_i(16)
+      rgb_to_256(r, g, b)
+    end
+
+    def rgb_to_256(r, g, b)
+      # Check grayscale ramp (232-255) first
+      if r == g && g == b
+        return 16 if r < 8
+        return 231 if r > 248
+        return (((r - 8).to_f / 247 * 24).round + 232)
+      end
+      # Map to 6x6x6 color cube (16-231)
+      ri = ((r.to_f / 255) * 5).round
+      gi = ((g.to_f / 255) * 5).round
+      bi = ((b.to_f / 255) * 5).round
+      16 + (36 * ri) + (6 * gi) + bi
+    end
+    # }}}
   end
 end

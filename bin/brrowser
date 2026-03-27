@@ -50,6 +50,7 @@ module Brrowser
     "heading_h1"   => 220,
     "heading_h2"   => 214,
     "heading_h3"   => 208,
+    "match_site_colors" => false,
   }
 
   HELP_HTML = <<~HTML
@@ -316,6 +317,7 @@ module Brrowser
         current_tab.links   = page[:links]
         current_tab.images  = page[:images]
         current_tab.forms   = page[:forms]
+        apply_site_colors(page[:colors])
         check_autofill
       else
         current_tab.title   = result[:url]
@@ -323,6 +325,8 @@ module Brrowser
         current_tab.links   = []
         current_tab.images  = []
         current_tab.forms   = []
+        @pMain.fg = @conf["content_fg"]
+        @pMain.bg = @conf["content_bg"]
       end
       current_tab.ix = 0
       @pMain.ix = 0
@@ -1503,8 +1507,23 @@ module Brrowser
       refresh_all
     end
 
+    def apply_site_colors(colors)
+      return unless colors && @conf["match_site_colors"]
+      if colors[:bg]
+        @pMain.bg = colors[:bg]
+      else
+        @pMain.bg = @conf["content_bg"]
+      end
+      if colors[:fg]
+        @pMain.fg = colors[:fg]
+      else
+        @pMain.fg = @conf["content_fg"]
+      end
+    end
+
     # Preferences {{{2
     PREF_SETTINGS = [
+      ["Match site colors", "match_site_colors", [true, false]],
       ["Image mode",     "image_mode",   %w[auto termpix ascii off]],
       ["Show images",    "show_images",  [true, false]],
       ["Homepage",       "homepage",     :text],
