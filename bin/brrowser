@@ -35,6 +35,7 @@ module Brrowser
     "image_mode"   => "auto",  # auto, termpix, ascii, off
     "homepage"     => "about:blank",
     "search_engine" => "g",
+    "download_dir" => "~/Downloads",
     "info_fg"      => 252,
     "info_bg"      => 236,
     "tab_fg"       => 252,
@@ -59,8 +60,8 @@ module Brrowser
     <tr><th>Key</th><th>Action</th></tr>
     <tr><td>j / Down</td><td>Scroll down</td></tr>
     <tr><td>k / Up</td><td>Scroll up</td></tr>
-    <tr><td>&lt; / h</td><td>Scroll left</td></tr>
-    <tr><td>&gt; / l</td><td>Scroll right</td></tr>
+    <tr><td>&lt;</td><td>Scroll left</td></tr>
+    <tr><td>&gt;</td><td>Scroll right</td></tr>
     <tr><td>Left</td><td>Previous tab</td></tr>
     <tr><td>Right</td><td>Next tab</td></tr>
     <tr><td>gg</td><td>Go to top</td></tr>
@@ -123,8 +124,8 @@ module Brrowser
     <tr><th>Key</th><th>Action</th></tr>
     <tr><td>b</td><td>Bookmark current page</td></tr>
     <tr><td>B</td><td>Show bookmarks</td></tr>
-    <tr><td>m + 0-9</td><td>Set quickmark</td></tr>
-    <tr><td>' + 0-9</td><td>Go to quickmark</td></tr>
+    <tr><td>m + key</td><td>Set quickmark (0-9, a-z)</td></tr>
+    <tr><td>' + key</td><td>Go to quickmark (0-9, a-z)</td></tr>
     <tr><td>i</td><td>Toggle images</td></tr>
     <tr><td>p</td><td>Show stored password for site</td></tr>
     <tr><td>I</td><td>AI summary of page</td></tr>
@@ -265,6 +266,7 @@ module Brrowser
       @focus_index = -1
       @focused_element = nil
       @highlighted_line = nil
+      @h_scroll = 0
 
       # Handle image URLs: display the image instead of raw binary
       if ct.match?(/image\//) || result[:url].to_s.match?(/\.(png|jpe?g|gif|bmp|webp|svg|ico)(\?|$)/i)
@@ -441,7 +443,8 @@ module Brrowser
     end
 
     def refresh_main
-      @pMain.text = current_tab.content.to_s
+      @original_content = current_tab.content.to_s
+      @pMain.text = @original_content
       @pMain.refresh
     end
 
@@ -457,6 +460,27 @@ module Brrowser
     end
 
     # Scrolling {{{2
+    def scroll_left
+      @h_scroll = [(@h_scroll || 0) - 10, 0].max
+      apply_h_scroll
+    end
+
+    def scroll_right
+      @h_scroll = (@h_scroll || 0) + 10
+      apply_h_scroll
+    end
+
+    def apply_h_scroll
+      return unless @h_scroll && @h_scroll > 0 && @original_content
+      lines = @original_content.split("\n")
+      shifted = lines.map do |line|
+        pure = line.gsub(/\e\[[0-9;]*m/, "")
+        pure.length > @h_scroll ? line[@h_scroll..] || "" : ""
+      end
+      @pMain.text = shifted.join("\n")
+      @pMain.full_refresh
+    end
+
     def scroll_down
       had_images = @showing_image
       clear_images if @showing_image
@@ -1170,7 +1194,7 @@ module Brrowser
       if result[:status] == 200
         filename = File.basename(URI.parse(result[:url]).path)
         filename = "download" if filename.empty?
-        dir = File.expand_path("~/Downloads")
+        dir = File.expand_path(@conf["download_dir"] || "~/Downloads")
         Dir.mkdir(dir) unless Dir.exist?(dir)
         path = File.join(dir, filename)
         # Avoid overwriting
@@ -1207,14 +1231,14 @@ module Brrowser
     end
 
     def set_quickmark
-      @status_msg = "Set quickmark (0-9):"
+      @status_msg = "Set quickmark (0-9, a-z):"
       refresh_cmd
       chr = getchr
-      if chr && chr.match?(/^[0-9]$/)
+      if chr && chr.length == 1 && chr.match?(/^[0-9a-z]$/)
         load_quickmarks
         @quickmarks[chr] = { "url" => current_tab.url, "title" => current_tab.title.to_s }
         save_quickmarks
-        @status_msg = "Quickmark #{chr} set: #{current_tab.title}"
+        @status_msg = "Quickmark '#{chr}' set: #{current_tab.title}"
       else
         @status_msg = "Cancelled"
       end
@@ -1222,15 +1246,15 @@ module Brrowser
     end
 
     def goto_quickmark
-      @status_msg = "Go to quickmark (0-9):"
+      @status_msg = "Go to quickmark (0-9, a-z):"
       refresh_cmd
       chr = getchr
-      if chr && chr.match?(/^[0-9]$/)
+      if chr && chr.length == 1 && chr.match?(/^[0-9a-z]$/)
         load_quickmarks
         if @quickmarks[chr]
           navigate(@quickmarks[chr]["url"])
         else
-          @status_msg = "No quickmark #{chr}"
+          @status_msg = "No quickmark '#{chr}'"
           refresh_cmd
         end
       else
@@ -1476,6 +1500,7 @@ module Brrowser
       ["Show images",    "show_images",  [true, false]],
       ["Homepage",       "homepage",     :text],
       ["Search engine",  "search_engine", %w[g ddg w]],
+      ["Download folder", "download_dir", :text],
       ["Info bar fg",    "info_fg",      :color],
       ["Info bar bg",    "info_bg",      :color],
       ["Tab bar fg",     "tab_fg",       :color],
@@ -1595,6 +1620,7 @@ module Brrowser
       "j"      => :scroll_down,    "k"       => :scroll_up,
       "DOWN"   => :scroll_down,    "UP"      => :scroll_up,
       "LEFT"   => :prev_tab,       "RIGHT"   => :next_tab,
+      "<"      => :scroll_left,    ">"       => :scroll_right,
       "G"      => :go_bottom,
       "d"      => :close_tab,      "u"       => :undo_close_tab,
       "o"      => :open_url,

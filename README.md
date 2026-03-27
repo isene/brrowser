@@ -22,7 +22,7 @@ A terminal web browser combining w3m-style rendering with qutebrowser-style keyb
 - Ad blocking via StevenBlack hosts list
 
 **Navigation:**
-- `j`/`k` or arrows to scroll, `gg`/`G` for top/bottom
+- `j`/`k` or arrows to scroll, `<`/`>` to scroll left/right, `gg`/`G` for top/bottom
 - `TAB`/`S-TAB` to cycle through links and form fields (highlighted with reverse video)
 - `Enter` to follow focused link or edit focused field
 - `o` to open URL, `t` to open in new tab, `O` to edit current URL
@@ -62,7 +62,7 @@ A terminal web browser combining w3m-style rendering with qutebrowser-style keyb
 **Other:**
 - `:download URL` to save files to ~/Downloads
 - Binary files prompt: open with `xdg-open`, download, or cancel
-- `P` for preferences popup (image mode, colors, homepage, search engine)
+- `P` for preferences popup (image mode, colors, homepage, search engine, download folder)
 - `?` for built-in help page
 - Cookie persistence across sessions
 - Configurable colors for all UI elements
@@ -98,6 +98,7 @@ brrowser isene.org              # Auto-adds https://
 | Key | Action |
 |-----|--------|
 | `j` / `k` / arrows | Scroll up/down |
+| `<` / `>` | Scroll left/right |
 | `Left` / `Right` | Previous/next tab |
 | `gg` / `G` | Top / bottom of page |
 | `Ctrl-d` / `Ctrl-u` | Half page down/up |
@@ -114,8 +115,8 @@ brrowser isene.org              # Auto-adds https://
 | `/` | Search page |
 | `n` / `N` | Next/previous search match |
 | `b` / `B` | Bookmark / show bookmarks |
-| `m` + `0-9` | Set quickmark |
-| `'` + `0-9` | Go to quickmark |
+| `m` + key | Set quickmark (0-9, a-z) |
+| `'` + key | Go to quickmark (0-9, a-z) |
 | `f` | Fill and submit form |
 | `y` / `Y` | Copy URL / copy focused element |
 | `e` | Edit page source in $EDITOR |
