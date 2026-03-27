@@ -60,12 +60,13 @@ A terminal web browser combining w3m-style rendering with qutebrowser-style keyb
 - `Ctrl-l` to force redraw
 
 **Other:**
-- `:download URL` to save files to ~/Downloads
+- `:download URL` to save files (configurable download folder)
 - Binary files prompt: open with `xdg-open`, download, or cancel
-- `P` for preferences popup (image mode, colors, homepage, search engine, download folder)
+- `P` for preferences (image mode, colors, homepage, search engine, download folder)
 - `?` for built-in help page
+- `:about` opens the project GitHub page
 - Cookie persistence across sessions
-- Configurable colors for all UI elements
+- Configurable homepage (defaults to project page)
 
 ## Installation
 

@@ -26,14 +26,14 @@ end
 # brrowser {{{1
 module Brrowser
   VERSION = "0.1.1"
-  HOMEPAGE = "about:blank"
+  HOMEPAGE = "https://github.com/isene/brrowser"
   CONFIG_DIR  = File.join(Dir.home, ".brrowser")
   CONFIG_FILE = File.join(CONFIG_DIR, "config.yml")
 
   DEFAULTS = {
     "show_images"  => true,
     "image_mode"   => "auto",  # auto, termpix, ascii, off
-    "homepage"     => "about:blank",
+    "homepage"     => "https://github.com/isene/brrowser",
     "search_engine" => "g",
     "download_dir" => "~/Downloads",
     "info_fg"      => 252,
@@ -163,7 +163,7 @@ module Brrowser
       @img_dir     = File.join(Dir.tmpdir, "brrowser_images_#{Process.pid}")
       Dir.mkdir(@img_dir) unless Dir.exist?(@img_dir)
 
-      main_loop(url || HOMEPAGE)
+      main_loop(url || @conf["homepage"] || HOMEPAGE)
     end
 
     # Pane layout {{{2
@@ -348,7 +348,7 @@ module Brrowser
     end
 
     def re_render
-      return unless current_tab.url && current_tab.url != HOMEPAGE
+      return unless current_tab.url && !current_tab.url.start_with?("about:")
       result = @fetcher.fetch(current_tab.url)
       render_page(result)
     end
@@ -394,7 +394,7 @@ module Brrowser
     end
 
     def resolve_search(input)
-      return input if input.match?(%r{^https?://}) || input.match?(%r{^file://})
+      return input if input.match?(%r{^https?://}) || input.match?(%r{^file://}) || input.match?(%r{^about:})
       return input if input.include?(".") && !input.include?(" ")
 
       parts = input.split(" ", 2)
