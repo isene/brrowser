@@ -1516,11 +1516,55 @@ module Brrowser
     def apply_site_colors(colors = nil)
       colors ||= current_tab.instance_variable_get(:@site_colors) rescue nil
       if colors && @conf["match_site_colors"]
-        @pMain.bg = colors[:bg] || @conf["content_bg"]
-        @pMain.fg = colors[:fg] || @conf["content_fg"]
+        bg = colors[:bg] || @conf["content_bg"]
+        fg = colors[:fg] || @conf["content_fg"]
+        # Ensure high contrast: if bg and fg are too close, pick white or black
+        fg = high_contrast_fg(bg, fg)
+        @pMain.bg = bg
+        @pMain.fg = fg
       else
         @pMain.bg = @conf["content_bg"]
         @pMain.fg = @conf["content_fg"]
+      end
+    end
+
+    # Map xterm-256 color to approximate luminance (0.0 dark, 1.0 bright)
+    def color_luminance(c)
+      r, g, b = xterm256_to_rgb(c)
+      (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
+    end
+
+    def xterm256_to_rgb(c)
+      if c < 16
+        # Standard colors: approximate
+        basic = [
+          [0,0,0],[128,0,0],[0,128,0],[128,128,0],[0,0,128],[128,0,128],[0,128,128],[192,192,192],
+          [128,128,128],[255,0,0],[0,255,0],[255,255,0],[0,0,255],[255,0,255],[0,255,255],[255,255,255]
+        ]
+        basic[c]
+      elsif c < 232
+        # 6x6x6 color cube
+        c -= 16
+        b = (c % 6) * 51
+        g = ((c / 6) % 6) * 51
+        r = (c / 36) * 51
+        [r, g, b]
+      else
+        # Grayscale ramp
+        v = (c - 232) * 10 + 8
+        [v, v, v]
+      end
+    end
+
+    def high_contrast_fg(bg, fg)
+      bg_lum = color_luminance(bg)
+      fg_lum = color_luminance(fg)
+      contrast = (bg_lum - fg_lum).abs
+      if contrast < 0.3
+        # Not enough contrast: use white for dark bg, black for light bg
+        bg_lum < 0.5 ? 255 : 0
+      else
+        fg
       end
     end
 
