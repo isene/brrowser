@@ -25,7 +25,7 @@ end
 
 # brrowser {{{1
 module Brrowser
-  VERSION = "0.1.0"
+  VERSION = "0.1.1"
   HOMEPAGE = "about:blank"
   CONFIG_DIR  = File.join(Dir.home, ".brrowser")
   CONFIG_FILE = File.join(CONFIG_DIR, "config.yml")
