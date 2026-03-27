@@ -1546,7 +1546,7 @@ module Brrowser
     ]
 
     def show_preferences
-      pw = 44
+      pw = 56
       ph = PREF_SETTINGS.length + 4
       px = (@w - pw) / 2
       py = (@h - ph) / 2
