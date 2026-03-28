@@ -87,7 +87,7 @@ module Brrowser
     <tr><td>f</td><td>Fill and submit form</td></tr>
     <tr><td>Ctrl-g</td><td>Edit focused field in $EDITOR</td></tr>
     <tr><td>H / Backspace</td><td>Go back</td></tr>
-    <tr><td>L</td><td>Go forward</td></tr>
+    <tr><td>L / Delete</td><td>Go forward</td></tr>
     <tr><td>r</td><td>Reload page</td></tr>
     </table>
     <h2>Tabs</h2>
@@ -1841,6 +1841,7 @@ module Brrowser
       "t"      => :tabopen_url,
       "H"      => :go_back,        "L"       => :go_forward,
       "BACK"   => :go_back,
+      "DEL"    => :go_forward,
       "r"      => :reload,
       "J"      => :next_tab,       "K"       => :prev_tab,
       "/"      => :search_page,
