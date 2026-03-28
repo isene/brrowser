@@ -10,11 +10,19 @@ module Brrowser
     USER_AGENT    = "brrowser/0.1 (terminal browser)"
     COOKIE_FILE   = File.join(Dir.home, ".brrowser", "cookies.yml")
 
+    MAX_CACHE = 20
+
     def initialize
       @cookies = load_cookies
+      @page_cache = {}
+      @page_cache_order = []
     end
 
     def fetch(url, method: :get, params: nil)
+      # Return cached response for GET requests
+      if method == :get && !params && @page_cache[url]
+        return @page_cache[url]
+      end
       # Handle local files
       if url.match?(%r{^file://})
         path = url.sub(%r{^file://}, "")
@@ -63,12 +71,14 @@ module Brrowser
           ct = response["content-type"] || ""
           body = response.body
           body = body.force_encoding("UTF-8") if ct.match?(/text|html|json|xml/)
-          return {
+          result = {
             body:         body,
             url:          uri.to_s,
             content_type: ct,
             status:       response.code.to_i
           }
+          cache_response(url, result) if method == :get
+          return result
         else
           return {
             body:         "Error #{response.code}: #{response.message}",
@@ -88,6 +98,29 @@ module Brrowser
     end
 
     private
+
+    public
+
+    def invalidate_cache(url = nil)
+      if url
+        @page_cache.delete(url)
+        @page_cache_order.delete(url)
+      else
+        @page_cache.clear
+        @page_cache_order.clear
+      end
+    end
+
+    private
+
+    def cache_response(url, result)
+      @page_cache[url] = result
+      @page_cache_order << url unless @page_cache_order.include?(url)
+      while @page_cache_order.length > MAX_CACHE
+        evict = @page_cache_order.shift
+        @page_cache.delete(evict)
+      end
+    end
 
     def store_cookies(uri, response)
       Array(response.get_fields("set-cookie")).each do |raw|

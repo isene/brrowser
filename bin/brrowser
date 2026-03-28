@@ -404,6 +404,7 @@ module Brrowser
 
     def reload
       return unless current_tab.url
+      @fetcher.invalidate_cache(current_tab.url)
       navigate_no_history(current_tab.url)
     end
 
