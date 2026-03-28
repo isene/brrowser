@@ -322,7 +322,7 @@ module Brrowser
           field = "[#{label}: ________]".fg(252)
           @line << field
           @col += label.length + 14
-          @current_form[:fields] << { type: type, name: name, value: value, placeholder: placeholder } if @current_form
+          @current_form[:fields] << { type: type, name: name, value: value, placeholder: placeholder, line: @output.length } if @current_form
         end
       when "select"
         name = node["name"] || "select"
@@ -331,12 +331,12 @@ module Brrowser
         options = node.css("option").map { |o| { value: o["value"] || o.text, text: o.text.strip } }
         selected = node.at_css("option[selected]")
         val = selected ? (selected["value"] || selected.text) : options.first&.dig(:value)
-        @current_form[:fields] << { type: "select", name: name, value: val.to_s, options: options } if @current_form
+        @current_form[:fields] << { type: "select", name: name, value: val.to_s, options: options, line: @output.length } if @current_form
       when "textarea"
         name = node["name"] || "text"
         @line << "[#{name}: ________]".fg(252)
         @col += name.length + 14
-        @current_form[:fields] << { type: "textarea", name: name, value: node.text } if @current_form
+        @current_form[:fields] << { type: "textarea", name: name, value: node.text, line: @output.length } if @current_form
       when "label"
         walk(node)
       when "span"
