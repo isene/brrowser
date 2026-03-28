@@ -2,6 +2,7 @@ require 'nokogiri'
 
 module Brrowser
   class Renderer
+    ANSI_RE = /\e\[[0-9;]*m/.freeze
     SKIP_ELEMENTS = %w[script style noscript svg head].freeze
     BLOCK_ELEMENTS = %w[
       p div section article aside main header footer nav
@@ -77,7 +78,7 @@ module Brrowser
         words = text.split(/( )/)
         words.each do |word|
           next if word.empty?
-          visible = word.gsub(/\e\[[0-9;]*m/, "")
+          visible = word.gsub(ANSI_RE, "")
           if @col + visible.length > @width && @col > 0 && word != " "
             flush_line
           end
@@ -104,7 +105,7 @@ module Brrowser
         text = collect_text(node)
         @line << text.b.fg(220)
         flush_line
-        @line << ("═" * [text.gsub(/\e\[[0-9;]*m/, "").length, @width].min).fg(220)
+        @line << ("═" * [text.gsub(ANSI_RE, "").length, @width].min).fg(220)
         flush_line
         ensure_blank_line
       when "h2"

@@ -497,7 +497,7 @@ module Brrowser
       return unless @h_scroll && @h_scroll > 0 && @original_content
       lines = @original_content.split("\n")
       shifted = lines.map do |line|
-        pure = line.gsub(/\e\[[0-9;]*m/, "")
+        pure = line.gsub(Rcurses::ANSI_RE, "")
         pure.length > @h_scroll ? line[@h_scroll..] || "" : ""
       end
       @pMain.text = shifted.join("\n")
@@ -734,7 +734,7 @@ module Brrowser
       return unless @search_term
       lines = current_tab.content.to_s.split("\n")
       lines.each_with_index do |line, i|
-        clean = line.gsub(/\e\[[0-9;]*m/, "")
+        clean = line.gsub(Rcurses::ANSI_RE, "")
         if clean.downcase.include?(@search_term.downcase)
           @search_matches << i
         end
@@ -1090,7 +1090,7 @@ module Brrowser
       api_key = File.read(key_file).strip
 
       # Get page text (strip ANSI)
-      text = current_tab.content.to_s.gsub(/\e\[[0-9;]*m/, "")
+      text = current_tab.content.to_s.gsub(Rcurses::ANSI_RE, "")
       if text.strip.empty?
         @status_msg = "No content to summarize"
         refresh_cmd
