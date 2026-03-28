@@ -845,9 +845,14 @@ module Brrowser
         navigate(@focused_element[:data][:href])
         return
       end
-      # If focused on a form field, edit it
+      # If focused on a form field: edit if empty, submit if filled
       if @focused_element && @focused_element[:type] == :field
-        edit_focused_field
+        field = @focused_element[:data]
+        if field[:value].to_s.strip.empty?
+          edit_focused_field
+        else
+          submit_focused_form
+        end
         return
       end
       return if current_tab.links.empty?
@@ -876,9 +881,54 @@ module Brrowser
       val = @pInput.ask("#{field[:placeholder] || field[:name]}: ", field[:value].to_s)
       if val && !val.strip.empty?
         field[:value] = val.strip
-        @status_msg = "Set #{field[:name]} = #{val.strip}"
+        # Update the rendered content to show the value
+        if field[:line]
+          lines = current_tab.content.split("\n")
+          if field[:line] < lines.length
+            old_line = lines[field[:line]].gsub("\e[7m", "").gsub("\e[27m", "")
+            # Replace the ________ placeholder with the value
+            old_line = old_line.gsub(/________\]/, "#{val.strip}]")
+            lines[field[:line]] = "\e[7m#{old_line}\e[27m"
+            current_tab.content = lines.join("\n")
+          end
+        end
+        @status_msg = "#{field[:name]} = #{val.strip} (Enter to submit)"
+        refresh_main
       end
       refresh_cmd
+    end
+
+    def submit_focused_form
+      return unless @focused_element && @focused_element[:type] == :field
+      form = @focused_element[:form]
+      return unless form
+
+      params = {}
+      form[:fields].each do |f|
+        next if f[:name].to_s.empty?
+        next if f[:type] == "submit"
+        params[f[:name]] = f[:value].to_s
+      end
+
+      action = form[:action]
+      action = current_tab.url if action.nil? || action.empty?
+      method = form[:method] == "post" ? :post : :get
+
+      @status_msg = "Submitting..."
+      refresh_cmd
+
+      if method == :post
+        result = @fetcher.fetch(action, method: :post, params: params)
+      else
+        query = URI.encode_www_form(params)
+        url = action.include?("?") ? "#{action}&#{query}" : "#{action}?#{query}"
+        result = @fetcher.fetch(url)
+      end
+
+      current_tab.navigate(action)
+      current_tab.url = result[:url]
+      render_page(result)
+      refresh_all
     end
 
     def edit_field_in_editor
