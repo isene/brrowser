@@ -457,7 +457,7 @@ module Brrowser
         label = tab.title.to_s.empty? ? "New Tab" : tab.title.to_s
         label = label[0..20] + "..." if label.length > 23
         if i == @current_tab
-          " #{label} ".fg(220).b
+          " #{label} ".fg(220).bd
         else
           " #{label} ".fg(245)
         end
@@ -609,6 +609,22 @@ module Brrowser
               response = @fetcher.fetch(src)
               next if response[:status] != 200
               ct = response[:content_type].to_s
+              # Handle oEmbed JSON responses (e.g. YouTube playlists)
+              if ct.match?(/json/) && src.include?("oembed")
+                begin
+                  data = JSON.parse(response[:body])
+                  thumb = data["thumbnail_url"]
+                  next unless thumb
+                  response = @fetcher.fetch(thumb)
+                  next if response[:status] != 200
+                  ct = response[:content_type].to_s
+                  ext = File.extname(URI.parse(thumb).path)[0..5]
+                  ext = ".jpg" if ext.empty?
+                  local = File.join(@img_dir, "#{Digest::MD5.hexdigest(src)}#{ext}")
+                rescue
+                  next
+                end
+              end
               next unless ct.match?(/image/) || src.match?(/\.(png|jpe?g|gif|bmp|webp|svg|ico)/i)
               File.binwrite(local, response[:body])
               if src.match?(/\.svg/i) || ct.include?("svg")
@@ -816,9 +832,25 @@ module Brrowser
         lines[@highlighted_line] = lines[@highlighted_line]
           .gsub("\e[7m", "").gsub("\e[27m", "")
       end
-      # Highlight current element line
+      # Highlight the specific element (not the whole line)
       if elem[:line] < lines.length
-        lines[elem[:line]] = "\e[7m#{lines[elem[:line]]}\e[27m"
+        line = lines[elem[:line]]
+        highlighted = false
+        if elem[:type] == :link
+          link_text = Regexp.escape(elem[:data][:text])
+          idx = Regexp.escape("[#{elem[:data][:index]}]")
+          # Match the ANSI-wrapped link text + label as rendered:
+          # text.fg(81).ul => \e[4m\e[38;5;81m...text...\e[39m\e[24m
+          # "[N]".fg(39)  => \e[38;5;39m[N]\e[39m
+          re = /(\e\[4m\e\[38;5;81m#{link_text}\e\[39m\e\[24m\e\[38;5;39m#{idx}\e\[39m)/
+          if line.match?(re)
+            lines[elem[:line]] = line.sub(re, "\e[7m\\1\e[27m")
+            highlighted = true
+          end
+        end
+        unless highlighted
+          lines[elem[:line]] = "\e[7m#{line}\e[27m"
+        end
         @highlighted_line = elem[:line]
       end
       current_tab.content = lines.join("\n")
@@ -1732,7 +1764,7 @@ module Brrowser
       sel = 0
 
       build = lambda do
-        lines = [" brrowser Preferences".b]
+        lines = [" brrowser Preferences".bd]
         lines << " h/l:change  H/L:+/-10  Enter:edit  ESC:close".fg(245)
         lines << ""
         PREF_SETTINGS.each_with_index do |(label, key, type), i|
@@ -1745,7 +1777,7 @@ module Brrowser
                  end
           prefix = i == sel ? " \u25b6 ".fg(220) : "   "
           line = "#{prefix}#{label.ljust(18)} \u25c4 #{disp.to_s.ljust(14)} \u25b6"
-          line = line.r if i == sel
+          line = line.rv if i == sel
           lines << line
         end
         popup.text = lines.join("\n")

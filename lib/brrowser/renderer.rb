@@ -103,24 +103,24 @@ module Brrowser
       when "h1"
         ensure_blank_line
         text = collect_text(node)
-        @line << text.b.fg(220)
+        @line << text.bd.fg(220)
         flush_line
         @line << ("═" * [text.gsub(ANSI_RE, "").length, @width].min).fg(220)
         flush_line
         ensure_blank_line
       when "h2"
         ensure_blank_line
-        inline_walk(node, :b, 214)
+        inline_walk(node, :bd, 214)
         flush_line
         ensure_blank_line
       when "h3"
         ensure_blank_line
-        inline_walk(node, :b, 208)
+        inline_walk(node, :bd, 208)
         flush_line
         ensure_blank_line
       when "h4", "h5", "h6"
         ensure_blank_line
-        inline_walk(node, :b, 252)
+        inline_walk(node, :bd, 252)
         flush_line
         ensure_blank_line
       when "p", "div", "section", "article", "aside", "main",
@@ -187,7 +187,7 @@ module Brrowser
         ensure_blank_line
       when "dt"
         flush_line if @col > 0
-        inline_walk(node, :b, 252)
+        inline_walk(node, :bd, 252)
         flush_line
       when "dd"
         old_indent = @indent
@@ -212,7 +212,7 @@ module Brrowser
             walk(node)
             @in_link = nil
           else
-            @line << text.fg(81).u
+            @line << text.fg(81).ul
             @col += text.length
           end
           label = "[#{link_index}]"
@@ -227,11 +227,11 @@ module Brrowser
           end
         end
       when "strong", "b"
-        inline_walk(node, :b)
+        inline_walk(node, :bd)
       when "em", "i"
-        inline_walk(node, :i)
+        inline_walk(node, :it)
       when "u"
-        inline_walk(node, :u)
+        inline_walk(node, :ul)
       when "s", "strike", "del"
         text = collect_text(node)
         @line << text.fg(240)
@@ -253,7 +253,8 @@ module Brrowser
         src = resolve_url(src) unless src.empty?
         if src.match?(%r{youtube\.com/embed/|youtube-nocookie\.com/embed/})
           video_id = src[%r{/embed/([^?&/]+)}, 1]
-          if video_id
+          playlist_id = src[/[?&]list=([^&]+)/, 1]
+          if video_id && video_id != "playlist" && video_id != "videoseries"
             ensure_blank_line
             # Add YouTube thumbnail as image
             thumb_url = "https://img.youtube.com/vi/#{video_id}/hqdefault.jpg"
@@ -267,8 +268,26 @@ module Brrowser
             link_index = @links.length
             link_line = @output.length
             @links << { index: link_index, href: video_url, text: "Watch on YouTube", line: link_line }
-            @line << "\u25b6 Watch on YouTube".fg(196).b + "[#{link_index}]".fg(39)
+            @line << "\u25b6 Watch on YouTube".fg(196).bd + "[#{link_index}]".fg(39)
             @col += 19 + "[#{link_index}]".length
+            flush_line
+            ensure_blank_line
+          elsif playlist_id
+            ensure_blank_line
+            # Playlist embed: use oEmbed to resolve thumbnail
+            oembed_url = "https://www.youtube.com/oembed?url=https://www.youtube.com/playlist?list=#{playlist_id}&format=json"
+            flush_line if @col > 0
+            line_num = @output.length
+            @images << { src: oembed_url, alt: "YouTube playlist", line: line_num, height: IMG_RESERVE }
+            @output << "[YouTube playlist]".fg(236)
+            (IMG_RESERVE - 1).times { @output << "" }
+            # Add link to playlist
+            playlist_url = "https://www.youtube.com/playlist?list=#{playlist_id}"
+            link_index = @links.length
+            link_line = @output.length
+            @links << { index: link_index, href: playlist_url, text: "YouTube Playlist", line: link_line }
+            @line << "\u25b6 YouTube Playlist".fg(196).bd + "[#{link_index}]".fg(39)
+            @col += 20 + "[#{link_index}]".length
             flush_line
             ensure_blank_line
           end
@@ -294,7 +313,7 @@ module Brrowser
         action = resolve_url(action) unless action.empty?
         method = (node["method"] || "get").downcase
         @current_form = { action: action, method: method, fields: [], line: @output.length }
-        @line << "[Form]".fg(208).b
+        @line << "[Form]".fg(208).bd
         flush_line
         walk(node)
         # Check if form has password field
@@ -456,7 +475,7 @@ module Brrowser
           cell.length > w ? cell[0...w] : cell.ljust(w)
         end
         line = parts.join(" \u2502 ".fg(240))
-        line = line.b if ri == 0 && table_node.at_css("th")
+        line = line.bd if ri == 0 && table_node.at_css("th")
         @output << (" " * @indent) + line
 
         if ri == 0 && table_node.at_css("th")
@@ -474,7 +493,7 @@ module Brrowser
         row.each_with_index do |cell, ci|
           next if cell.strip.empty?
           label = headers && headers[ci] ? headers[ci] : "Col #{ci + 1}"
-          @output << (" " * @indent) + "#{label}: ".fg(245).b + cell
+          @output << (" " * @indent) + "#{label}: ".fg(245).bd + cell
         end
         @output << (" " * @indent) + ("\u2500" * 20).fg(240)
       end
